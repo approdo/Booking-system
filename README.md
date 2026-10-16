@@ -52,7 +52,7 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `app/types/api.ts` | The shapes of the API's answers, shared by the pages and the Worker |
 | `worker/` | The booking API: `src/` code, `migrations/` D1 schema, `test/` tests, `wrangler.toml` settings |
 | `app/assets/css/tokens.css` | Colours, fonts, radii, shadows (design A); the Site-starter names stay as aliases |
-| `app/pages/` | The booking in five screens (`/`, `/therapist/`, `/time/`, `/details/`, `/done/`); the back office under `/admin/`: `login/`, `today/` (the first page after signing in), `bookings/`, `services/`, `hours/` (never indexed by search engines; without a session every page leads to `login/`) |
+| `app/pages/` | The booking in five screens (`/`, `/therapist/`, `/time/`, `/details/`, `/done/`); the back office under `/admin/`: `login/`, `today/` (the first page after signing in), `bookings/`, `calendar/` (one day by therapist and time), `services/`, `hours/` (never indexed by search engines; without a session every page leads to `login/`) |
 | `app/components/ui/`, `app/components/booking/`, `app/components/admin/` | The design's building blocks (buttons, fields, banners, tiles, switch, dialog), the booking's own parts and the back office's (tabs, cards, the service form) |
 | `app/utils/adminNav.ts` | The back office's tabs in one list: a screen that is not built (or is cut) is simply not in it |
 | `app/utils/bookingDraft.ts` | What the visitor has chosen so far, kept in `sessionStorage` so a reload or Back keeps it |

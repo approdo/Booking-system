@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
-import type { BrowserContext, Locator, Page, Route } from '@playwright/test'
+import type { APIRequestContext, BrowserContext, Locator, Page, Route } from '@playwright/test'
 import { demoAccount } from '../../app/data/demoAccount'
 import { sampleBookings } from '../../app/data/sampleBookings'
 import { site } from '../../app/data/site'
+import { therapists } from '../../app/data/team'
 import type { AvailabilityResponse, BookingCreatedResponse } from '../../app/types/api'
 import { ADMIN_PAGE_PATHS, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
 import type { BookingDraft } from '../../app/utils/bookingDraft'
@@ -10,11 +11,12 @@ import { DRAFT_STORAGE_KEYS } from '../../app/utils/bookingDraft'
 import { fullDate, shortDateWithYear, spokenDate, thaiToday } from '../../app/utils/bookingFormat'
 import { addDays, weekdayOf } from '../../app/utils/bookingRules'
 import { STORAGE_KEYS } from '../../app/utils/bookingRepository'
+import { UNASSIGNED } from '../../app/utils/calendarDay'
 import { joinPhrases } from '../../app/utils/phrases'
 import { stateBanners } from '../../app/utils/statusBanners'
 
-// The back office (BK-007 and BK-008, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo
-// account shown on the page, "วันนี้", the booking list, services and prices, and the opening hours, against the booking API on this
+// The back office (BK-007 to BK-009, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo
+// account shown on the page, "วันนี้", the booking list, the calendar, services and prices, and the opening hours, against the booking API on this
 // machine (playwright.config.ts starts the Worker with a fresh local D1). Every test has its own browser
 // context, so its own sandbox: what one test changes no other test sees (D-004). Answers that are hard to cause
 // for real (429, demo_full, a dead network, an expired sandbox) are faked with page.route (lesson G-045).
@@ -458,7 +460,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
 
   test('no sideways scrolling at 375, 768 and 1440; the cards have 1, 2 and 3 columns; the tab bar shows below 1024 (N6, spec D2)', async ({ page }) => {
     await signIn(page)
-    const pages = ['/admin/today/', '/admin/bookings/', '/admin/services/', '/admin/hours/']
+    const pages = ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/']
     for (const [width, columns] of [[375, 1], [768, 2], [1440, 3]] as const) {
       await page.setViewportSize({ width, height: 800 })
       for (const path of pages) {
@@ -483,7 +485,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
   test('at 375 every control is at least 44px high with 16px fields, and the tab bar never covers the last card or the keyboard focus (spec D3, G-014)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 640 })
     await signIn(page)
-    for (const path of ['/admin/today/', '/admin/bookings/', '/admin/services/', '/admin/hours/']) {
+    for (const path of ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/']) {
       await openPage(page, path)
       await page.locator('main .skeleton').first().waitFor({ state: 'detached' })
       const small = await page.evaluate(() => [...document.querySelectorAll('main a, main button, main input:not(.switch), main select, nav a, header button')]
@@ -623,5 +625,186 @@ test.describe('BK-008: today', () => {
       const lefts = await page.locator('main a[data-status]').evaluateAll(items => new Set(items.map(item => Math.round(item.getBoundingClientRect().left))).size)
       expect(lefts, `${width}px`).toBe(columns)
     }
+  })
+})
+
+/** A booking in the calendar, in whichever view the width shows (grid from 1024px, list below). */
+function calendarEvent(page: Page, code: string) {
+  return page.locator(`main button[data-code="${code}"]`).filter({ visible: true })
+}
+
+/** The calendar on this day: the URL has ?date=…, or no date at all for today. */
+function calendarUrl(date: string | null) {
+  return (url: URL) => url.pathname === serverPath('/admin/calendar/') && url.searchParams.get('date') === date
+}
+
+/** Waits until the calendar has its bookings (the skeleton is gone). */
+async function calendarLoaded(page: Page) {
+  await expect(page.locator('h1')).toHaveText('ปฏิทิน')
+  await page.locator('main .skeleton').first().waitFor({ state: 'detached' })
+}
+
+/**
+ * Where a booking sits in the grid: in the column of `column`, and its top on the line of `time` at the left
+ * (rows of 30 minutes are 24px high, so a booking of 60 minutes is 48px less the 2px between blocks).
+ */
+async function expectInGrid(page: Page, code: string, column: string, time: string, minutes: number) {
+  const block = page.locator(`section[data-column="${column}"] button[data-code="${code}"]`)
+  await expect(block).toBeVisible()
+  const box = (await block.boundingBox())!
+  const mark = (await page.locator(`[data-time="${time}"]`).boundingBox())!
+  expect(Math.abs(box.y - 1 - mark.y), `${code} at ${time}`).toBeLessThanOrEqual(1)
+  expect(Math.abs(box.height - (minutes * 0.8 - 2)), `${code} ${minutes} minutes`).toBeLessThanOrEqual(1)
+}
+
+/** A therapist of the starting data who works on that day (spec section 10), other than `except`. */
+function workingOn(date: string, except: string) {
+  return therapists.find(person => person.id !== except && !(person.daysOff as readonly number[]).includes(weekdayOf(date)))!
+}
+
+/**
+ * Books through the API in a new sandbox, at 14:00 for an hour, and gives the browser that sandbox before its
+ * first page, so signing in shows it. Returns the booking number.
+ */
+async function bookInNewSandbox(context: BrowserContext, request: APIRequestContext, date: string, therapistId: string) {
+  const response = await request.post(`${site.apiUrl}/api/bookings`, {
+    data: { serviceId: 'thai-traditional', minutes: 60, therapistId, date, time: '14:00', name: 'ทดลอง ปฏิทิน', phone: '02-000-0000' },
+  })
+  expect(response.status()).toBe(201)
+  const created = await response.json() as BookingCreatedResponse & { sandbox: { token: string } }
+  await context.addInitScript(({ key, token }) => {
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, token)
+  }, { key: STORAGE_KEYS.sandbox, token: created.sandbox.token })
+  return created.booking.code
+}
+
+test.describe('BK-009: calendar', () => {
+  test('a booking made in the test shows in its day, therapist and time; next day, previous day and "วันนี้" move and come back (AC1)', async ({ page, context, request }) => {
+    // A booking of this visitor for tomorrow at 14:00, with a therapist who works tomorrow (not มาลัย, who has
+    // the starting data's booking tomorrow).
+    const today = thaiToday()
+    const tomorrow = addDays(today, 1)
+    const person = workingOn(tomorrow, 'malai')
+    const code = await bookInNewSandbox(context, request, tomorrow, person.id)
+
+    // From 1024px: today's grid, a column for "ยังไม่จัดคน" and one per therapist.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signIn(page, '/admin/calendar/')
+    await calendarLoaded(page)
+    await expect(page.locator('h1 + p')).toHaveText(`${fullDate(today)} · ร้านเปิด 10:00–22:00 น.`)
+    await expect(page.locator('section[data-column]')).toHaveCount(1 + therapists.length)
+    await expectInGrid(page, 'NP-H4T7C', 'malai', '13:00', 90)
+    await expectInGrid(page, 'NP-2MW8D', UNASSIGNED, '15:00', 60)
+    await expect(calendarEvent(page, code)).toHaveCount(0)
+
+    // "วันถัดไป": tomorrow, with the new booking in its therapist's column at 14:00.
+    await page.getByRole('button', { name: 'วันถัดไป' }).click()
+    await expect(page).toHaveURL(calendarUrl(tomorrow))
+    await expect(page.locator('h1 + p')).toHaveText(`${fullDate(tomorrow)} · ร้านเปิด 10:00–22:00 น.`)
+    await expectInGrid(page, code, person.id, '14:00', 60)
+    await expect(calendarEvent(page, code)).toContainText('14:00 ทดลอง ปฏิทิน')
+    await expect(calendarEvent(page, code)).toContainText('รอยืนยัน')
+    await expect(calendarEvent(page, 'NP-H4T7C')).toHaveCount(0)
+
+    // "วันก่อน" comes back to today.
+    await page.getByRole('button', { name: 'วันก่อน' }).click()
+    await expect(page).toHaveURL(calendarUrl(null))
+    await expect(page.locator('h1 + p')).toHaveText(`${fullDate(today)} · ร้านเปิด 10:00–22:00 น.`)
+    await expect(calendarEvent(page, code)).toHaveCount(0)
+    await expect(calendarEvent(page, 'NP-H4T7C')).toBeVisible()
+
+    // The day stays after a reload (lesson L-010), and "วันนี้" comes back from any day.
+    await page.getByRole('button', { name: 'วันถัดไป' }).click()
+    await page.getByRole('button', { name: 'วันถัดไป' }).click()
+    await expect(page).toHaveURL(calendarUrl(addDays(today, 2)))
+    await page.reload()
+    await calendarLoaded(page)
+    await expect(page.locator('h1 + p')).toContainText(fullDate(addDays(today, 2)))
+    await page.getByRole('button', { name: 'วันนี้', exact: true }).click()
+    await expect(page).toHaveURL(calendarUrl(null))
+    await expect(calendarEvent(page, 'NP-H4T7C')).toBeVisible()
+
+    // Below 1024px the same day is a list in time order, with a filter per therapist.
+    await page.setViewportSize({ width: 375, height: 800 })
+    await openPage(page, `/admin/calendar/?date=${tomorrow}`)
+    await calendarLoaded(page)
+    await expect(page.locator('section[data-column]').first()).toBeHidden()
+    await expect(calendarEvent(page, code)).toContainText('14:00–15:00 · ทดลอง ปฏิทิน')
+    await expect(calendarEvent(page, code)).toContainText(`${person.name} · รอยืนยัน`)
+    const listed = await page.locator('main ol button[data-code]').filter({ visible: true }).evaluateAll(items => items.map(item => item.getAttribute('data-code')))
+    expect(listed).toEqual(['NP-C8N4F', code]) // 11:00, then 14:00
+    const filter = page.getByRole('group', { name: 'หมอนวด' })
+    await filter.getByRole('button', { name: 'มาลัย' }).click()
+    await expect(calendarEvent(page, code)).toHaveCount(0)
+    await expect(calendarEvent(page, 'NP-C8N4F')).toBeVisible()
+    await filter.getByRole('button', { name: person.name }).click()
+    await expect(calendarEvent(page, code)).toBeVisible()
+    await expect(calendarEvent(page, 'NP-C8N4F')).toHaveCount(0)
+  })
+
+  test('pressing a booking shows its number and status in a dialog, where the status can change; Esc gives the focus back (AC2)', async ({ page }) => {
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 800 })
+      if (width === 1440) await signIn(page, '/admin/calendar/')
+      else await openPage(page, '/admin/calendar/')
+      await calendarLoaded(page)
+
+      const event = calendarEvent(page, 'NP-2MW8D')
+      await event.click()
+      const dialog = page.getByRole('dialog', { name: 'รายละเอียดการจอง' })
+      await expect(dialog).toBeVisible()
+      await expectVisibleText(dialog, 'NP-2MW8D')
+      await expect(dialog.locator('li[data-code="NP-2MW8D"]')).toBeVisible()
+
+      // At 1440 the status changes in the dialog, and the block in the calendar changes with it.
+      if (width === 1440) {
+        await expectVisibleText(dialog, 'รอยืนยัน')
+        await dialog.getByRole('button', { name: 'ยืนยัน', exact: true }).click()
+        await expectVisibleText(dialog, 'ยืนยันแล้ว')
+        await expect(event).toHaveAttribute('data-status', 'confirmed')
+        await expect(event).toContainText('ยืนยันแล้ว')
+      }
+      else {
+        await expectVisibleText(dialog, 'ยืนยันแล้ว')
+      }
+
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      await expect(event).toBeFocused()
+
+      // No sideways scrolling (N6, spec D2).
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(scrollWidth, `${width}px`).toBeLessThanOrEqual(clientWidth)
+    }
+  })
+
+  test('a therapist\'s day off is striped in the grid and named above the list; an empty day says so', async ({ page, context, request }) => {
+    // The next Thursday after today, นวลจันทร์'s regular day off (spec section 10), with a booking so the grid shows.
+    const today = thaiToday()
+    const thursday = addDays(today, ((4 - weekdayOf(today) + 6) % 7) + 1)
+    const off = therapists.find(person => (person.daysOff as readonly number[]).includes(4))!
+    const code = await bookInNewSandbox(context, request, thursday, workingOn(thursday, off.id).id)
+
+    await page.setViewportSize({ width: 1440, height: 800 })
+    await signIn(page, `/admin/calendar/?date=${thursday}`)
+    await calendarLoaded(page)
+    await expect(calendarEvent(page, code)).toBeVisible()
+    const striped = await page.locator('section[data-column] .calendar-day-off').evaluateAll(items =>
+      items.map(item => [item.closest('section')!.getAttribute('data-column'), item.textContent!.trim()]))
+    expect(striped).toEqual([[off.id, 'หยุด']])
+
+    // Below 1024px the list says who is off.
+    await page.setViewportSize({ width: 375, height: 800 })
+    await openPage(page, `/admin/calendar/?date=${thursday}`)
+    await calendarLoaded(page)
+    await expectVisibleText(page, `หมอนวดที่หยุด: ${off.name}`)
+
+    // A day without any booking (15 days ahead is past the booking window of 14 days).
+    await openPage(page, `/admin/calendar/?date=${addDays(today, 15)}`)
+    await calendarLoaded(page)
+    await expectVisibleText(page, 'ไม่มีการจองในวันนี้')
   })
 })

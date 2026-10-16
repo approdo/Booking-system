@@ -44,6 +44,7 @@ describe('currentTab', () => {
   it('finds the tab of a page, with or without the last "/"', () => {
     expect(currentTab('/admin/today/')?.key).toBe('today')
     expect(currentTab('/admin/bookings/')?.key).toBe('bookings')
+    expect(currentTab('/admin/calendar/')?.key).toBe('calendar')
     expect(currentTab('/admin/services')?.key).toBe('services')
     expect(currentTab('/admin/hours/')?.key).toBe('settings')
     expect(currentTab('/admin/login/')).toBeNull()

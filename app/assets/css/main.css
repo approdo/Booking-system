@@ -23,6 +23,19 @@
 }
 
 /*
+ * The back office's calendar (spec section 7): a line at the top of every hour of a column (rows of 30 minutes
+ * are 24px high, so an hour is 48px), and the stripes of a therapist's day off.
+ */
+@utility calendar-hours {
+  background-image: linear-gradient(var(--color-line) 1px, transparent 1px);
+  background-size: 100% 48px;
+}
+
+@utility calendar-day-off {
+  background-image: repeating-linear-gradient(135deg, var(--color-surface) 0 8px, var(--color-bg) 8px 16px);
+}
+
+/*
  * Answers of the booking (spec section 3, C3 and C9): a real <input type="radio"> hidden inside a <label>.
  * The label shows the state, so these rules look at the input with :has(). They are outside any layer on
  * purpose: they must win over the colour utilities of the text inside (the chosen answer turns white).
