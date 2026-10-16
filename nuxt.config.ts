@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import { site } from './app/data/site'
+import { BOOKING_STEP_PATHS } from './app/utils/bookingSteps'
 import { homePaths, siteLocales } from './app/utils/locales'
 
 // The site is served under a sub-path, '/Booking-system/' on GitHub Pages (or at the root of a
@@ -43,9 +44,9 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-09-27',
   nitro: {
     prerender: {
-      // Write the home page of every language and the back office's entry, whether or not some page links
-      // to them; the crawler adds the pages they link to.
-      routes: [...homePaths(locales), '/admin/'],
+      // Write the home page of every language, the five booking screens (the "ถัดไป" button is not a link the
+      // crawler could follow) and the back office's entry; the crawler adds the pages they link to.
+      routes: [...new Set([...homePaths(locales), ...BOOKING_STEP_PATHS, '/admin/'])],
     },
   },
   vite: {

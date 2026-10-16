@@ -10,5 +10,7 @@
       <slot />
     </main>
     <SiteFooter />
+    <!-- The layout's one polite live region (spec section 9): app/composables/useAnnounce.ts. -->
+    <NuxtAnnouncer />
   </div>
 </template>

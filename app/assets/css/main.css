@@ -22,6 +22,135 @@
   background-color: color-mix(in srgb, var(--color-success) 12%, var(--color-white));
 }
 
+/*
+ * Answers of the booking (spec section 3, C3 and C9): a real <input type="radio"> hidden inside a <label>.
+ * The label shows the state, so these rules look at the input with :has(). They are outside any layer on
+ * purpose: they must win over the colour utilities of the text inside (the chosen answer turns white).
+ *
+ * - .choice-tile: a length of a service, a day, a time. Chosen = accent; unavailable = surface with the
+ *   time struck through (the word "เต็ม" / "หยุด" says it too).
+ * - .choice-card: a service card (it holds tiles) or a therapist card (the whole card is the radio).
+ *   Chosen = 2px accent border and the card shadow.
+ */
+.choice-tile {
+  display: grid;
+  place-content: center;
+  text-align: center;
+  line-height: 1.3;
+  border: 1.5px solid var(--color-line);
+  border-radius: var(--radius-input);
+  background-color: var(--color-white);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.choice-tile:hover {
+  border-color: var(--color-text-muted);
+}
+
+.choice-tile:has(:focus-visible),
+label.choice-card:has(:focus-visible) {
+  outline: 3px solid var(--color-gold-ink);
+  outline-offset: 3px;
+}
+
+.choice-tile:has(:checked) {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-white);
+}
+
+.choice-tile:has(:disabled) {
+  border-color: var(--color-surface);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Smaller words in a tile: muted, "ว่าง" in green; white on the chosen tile. */
+.choice-tile .tile-note {
+  color: var(--color-text-muted);
+}
+
+.choice-tile .tile-free {
+  color: var(--color-success);
+}
+
+.choice-tile:has(:checked) :is(.tile-note, .tile-free) {
+  color: var(--color-white);
+}
+
+.choice-tile:has(:disabled) :is(.tile-note, .tile-free) {
+  color: var(--color-text-muted);
+}
+
+.choice-tile:has(:disabled) .tile-struck {
+  text-decoration: line-through;
+}
+
+.choice-card {
+  border: 1.5px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background-color: var(--color-card);
+  transition: border-color 0.15s;
+}
+
+.choice-card:hover {
+  border-color: var(--color-text-muted);
+}
+
+/* The extra half pixel of the 2px border is an inset ring, so the card's content does not move. */
+.choice-card:has(:checked) {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 0.5px var(--color-accent), var(--shadow-card);
+}
+
+label.choice-card {
+  cursor: pointer;
+}
+
+/* Keyboard focus never ends up under the bar stuck to the bottom of the screen (spec section 3, G-023). */
+html:has(.action-bar) {
+  scroll-padding-bottom: 84px;
+}
+
+/* The spinner of a busy button (spec section 3): a ring open at the top that turns. */
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spinner-turn 0.8s linear infinite;
+}
+
+/* A box that stands for content still loading (spec section 3): surface colour, pulsing gently. */
+.skeleton {
+  background-color: var(--color-surface);
+  animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .skeleton {
+    animation: none;
+  }
+}
+
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes skeleton-pulse {
+  to {
+    opacity: 0.6;
+  }
+}
+
 @layer base {
   /* The page behind an open dialog does not scroll. */
   html:has(dialog[open]) {

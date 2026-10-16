@@ -5,9 +5,8 @@ as [Business-site](https://approdo.github.io/Business-site/). Customers book a s
 and a time in five steps on their phone; the shop manages bookings, services and opening hours in a back
 office. Thai only. This is a portfolio demo: the brand, the shop and every detail are made up.
 
-Status: **back end ready, screens next**. The site structure, the design tokens, the shop's starting data
-and the booking API (Cloudflare Workers + D1, tested locally) are in place; the booking screens and the
-back office come next.
+Status: **customer booking ready, back office next**. The five booking screens, the shop's starting data and
+the booking API (Cloudflare Workers + D1, tested locally) are in place; the back office comes next.
 
 ## Stack
 
@@ -35,7 +34,7 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `npm run test:worker` | The API's tests only, inside the Workers runtime with a local D1 |
 | `npm run dev:api` | The API at http://localhost:8787 with a local D1 (see below) |
 | `npm run check:worker` | Bundle the API without deploying it (`wrangler deploy --dry-run`, no account) |
-| `npm run test:e2e` | End-to-end tests (Playwright) against the preview on port 4176 — run `npm run generate` first |
+| `npm run test:e2e` | End-to-end tests (Playwright) against the preview on port 4176 and the API on port 8787, which it starts with an empty local D1 (`npm run e2e:api`) — run `npm run generate` first |
 | `LIVE_URL=<url> npm run test:live` | The same end-to-end tests against a deployed site |
 | `npm run brand-images` | Make `public/favicon.svg`, `apple-touch-icon.png` and `og-image.png` from `site.ts` and `tokens.css` |
 | `npm run check:site-url` | Check `site.url` before a deploy (still a reserved `.example` address = not ready) |
@@ -53,7 +52,9 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `app/types/api.ts` | The shapes of the API's answers, shared by the pages and the Worker |
 | `worker/` | The booking API: `src/` code, `migrations/` D1 schema, `test/` tests, `wrangler.toml` settings |
 | `app/assets/css/tokens.css` | Colours, fonts, radii, shadows (design A); the Site-starter names stay as aliases |
-| `app/pages/` | `/` the booking, `/admin/` the back office (never indexed by search engines) |
+| `app/pages/` | The booking in five screens (`/`, `/therapist/`, `/time/`, `/details/`, `/done/`), `/admin/` the back office (never indexed by search engines) |
+| `app/components/ui/`, `app/components/booking/` | The design's building blocks (buttons, fields, banners, tiles) and the booking's own parts |
+| `app/utils/bookingDraft.ts` | What the visitor has chosen so far, kept in `sessionStorage` so a reload or Back keeps it |
 | `i18n/locales/` | Labels of the header, footer and skip link |
 
 Every phone number, e-mail address and URL in the code and the tests is a reserved example value

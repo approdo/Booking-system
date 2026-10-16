@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "typecheck": "nuxt typecheck && npm --prefix worker run typecheck",
     "dev:api": "npm --prefix worker run migrate:local && npm --prefix worker run dev",
+    "e2e:api": "npm --prefix worker run dev:e2e",
     "check:worker": "npm --prefix worker run check:deploy",
     "brand-images": "node scripts/generate-brand-images.mjs",
     "psi": "node scripts/psi.mjs",

@@ -25,11 +25,21 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Tests run against the generated static site: run `npm run generate` first.
-  webServer: {
-    command: 'npm run preview',
-    url: previewUrl,
-    reuseExistingServer: !isCI,
-    timeout: 60_000,
-  },
+  webServer: [
+    // Tests run against the generated static site: run `npm run generate` first.
+    {
+      command: 'npm run preview',
+      url: previewUrl,
+      reuseExistingServer: !isCI,
+      timeout: 60_000,
+    },
+    // The booking API the generated pages call (site.apiUrl, http://localhost:8787): the Worker on this
+    // machine with a fresh local D1 (worker/scripts/e2e-server.mjs). No Cloudflare account is used.
+    {
+      command: 'npm run e2e:api',
+      url: new URL('/health', site.apiUrl).href,
+      reuseExistingServer: !isCI,
+      timeout: 120_000,
+    },
+  ],
 })
