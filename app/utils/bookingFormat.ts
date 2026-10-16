@@ -39,6 +39,17 @@ export function shortDate(date: string): string {
   return `${WEEKDAYS_SHORT[weekday]} ${day} ${MONTHS_SHORT[month]}`
 }
 
+/** 'พฤ. 31 ธ.ค. 2569': a special closed day in the back office. */
+export function shortDateWithYear(date: string): string {
+  const { buddhistYear, month, day, weekday } = parts(date)
+  return `${WEEKDAYS_SHORT[weekday]} ${day} ${MONTHS_SHORT[month]} ${buddhistYear}`
+}
+
+/** 'จันทร์' for 1: the name of a day of the week (0 = Sunday). */
+export function weekdayName(weekday: number): string {
+  return WEEKDAYS[weekday] ?? ''
+}
+
 /** 'อาทิตย์ 18 ต.ค.': next to the times of a day. */
 export function dayWithMonth(date: string): string {
   const { month, day, weekday } = parts(date)

@@ -70,6 +70,30 @@ export const slotTakenBanner: BannerContent = {
   retry: false,
 }
 
+/** The back office: the password or email was wrong (spec section 5). */
+export const invalidCredentialsBanner: BannerContent = {
+  variant: 'error',
+  title: null,
+  text: ['อีเมลหรือรหัสผ่าน', 'ไม่ถูกต้อง'],
+  retry: false,
+}
+
+/** The back office: the session has ended (401), so the login page asks again (spec section 5). */
+export const signedOutBanner: BannerContent = {
+  variant: 'info',
+  title: null,
+  text: ['กรุณาเข้าสู่ระบบอีกครั้ง'],
+  retry: false,
+}
+
+/** The back office: "คืนคิว" of a cancelled booking whose time has been taken since (spec section 4). */
+export const restoreTakenBanner: BannerContent = {
+  variant: 'warning',
+  title: null,
+  text: ['ช่วงเวลานี้มีคิวอื่นแล้ว ', 'คืนคิวไม่ได้'],
+  retry: false,
+}
+
 /**
  * The banner for a failed request. States that only the back office meets, or that a page handles on
  * its own (field errors, a taken time), fall back to "เชื่อมต่อระบบจองไม่ได้": the request can be sent again.

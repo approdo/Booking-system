@@ -7,7 +7,7 @@ import type { SiteSide } from '~/utils/pageTitle'
  * The header of every page (spec section 3, AppHeader): the shop name and the side under it.
  * The logo leads to the start of the booking (the draft stays), or to the back office's first page.
  * On a booking screen it also shows "ขั้น N จาก 5" (with the screen's name below 768px) and the
- * progress bar.
+ * progress bar. In the back office: the tabs (1024px and wider), the "บัญชีทดลอง" label and "ออกจากระบบ".
  */
 const props = defineProps<{ side: SiteSide }>()
 
@@ -41,6 +41,7 @@ const step = computed(() => (props.side === 'customer' ? bookingStepNumber(route
           <strong class="font-semibold whitespace-nowrap text-text">ขั้น {{ step }} จาก {{ BOOKING_STEPS.length }}</strong>
           <span class="block md:hidden">{{ bookingStep(step).title }}</span>
         </p>
+        <AdminHeaderActions v-if="side === 'admin'" />
       </div>
       <BookingProgress
         v-if="step"

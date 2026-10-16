@@ -115,6 +115,57 @@ html:has(.action-bar) {
   scroll-padding-bottom: 84px;
 }
 
+/* The back office's tab bar is shown below 1024px only (spec section 3, TabBar). */
+@media (width < 64rem) {
+  html:has(.tab-bar) {
+    scroll-padding-bottom: 72px;
+  }
+}
+
+/*
+ * The on / off switch (spec section 3, Switch): a real checkbox drawn as a 46 × 28 track with a knob.
+ * Off: muted border and knob on white. On: accent track, white knob moved to the right.
+ */
+.switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  margin: 0;
+  border: 1.5px solid var(--color-text-muted);
+  border-radius: var(--radius-button);
+  background-color: var(--color-white);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background-color: var(--color-text-muted);
+  transition: transform 0.15s;
+}
+
+.switch:checked {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+}
+
+.switch:checked::after {
+  background-color: var(--color-white);
+  transform: translateX(18px);
+}
+
+.switch[aria-busy="true"] {
+  cursor: progress;
+}
+
 /* The spinner of a busy button (spec section 3): a ring open at the top that turns. */
 .spinner {
   width: 16px;
@@ -136,6 +187,11 @@ html:has(.action-bar) {
   .spinner,
   .skeleton {
     animation: none;
+  }
+
+  .switch,
+  .switch::after {
+    transition: none;
   }
 }
 

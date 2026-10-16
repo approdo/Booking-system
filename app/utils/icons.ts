@@ -17,6 +17,16 @@ export const ICON_PATHS = {
     'M10 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z',
     'M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8',
   ],
+  // The back office (spec section 7): tabs, sign out, search, add.
+  list: ['M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01'],
+  tag: ['M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9z', 'M10 8.5a1.5 1.5 0 1 1-3 0a1.5 1.5 0 1 1 3 0z'],
+  set: ['M4 7h10M18 7h2M4 17h4M12 17h8', 'M18 7a2 2 0 1 1-4 0a2 2 0 1 1 4 0z', 'M12 17a2 2 0 1 1-4 0a2 2 0 1 1 4 0z'],
+  out: ['M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14', 'M10 8l-4 4 4 4M6 12h10'],
+  search: ['M17.5 11a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0z', 'M16 16l4.5 4.5'],
+  plus: ['M12 5v14M5 12h14'],
+  // The chevron of a select (spec section 3, Field).
+  down: ['M6 9l6 6 6-6'],
+  close: ['M6 6l12 12M18 6L6 18'],
 } as const satisfies Record<string, readonly string[]>
 
 export type IconName = keyof typeof ICON_PATHS

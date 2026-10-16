@@ -16,9 +16,10 @@ const tokensCss = readFileSync(new URL('../../app/assets/css/tokens.css', import
 /** The demo line of the footer, word for word (N9). */
 const DEMO_NOTICE = 'เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ'
 
-// Paths relative to the site path: the booking pages (with the footer) and the back office.
+// Paths relative to the site path: the booking pages (with the footer) and the back office's login page. The
+// other back-office pages lead to the login page without a session: tests/e2e/admin.spec.ts covers them.
 const customerPages = ['./']
-const adminPages = ['./admin/', './admin/login/']
+const adminPages = ['./admin/login/']
 
 /** The path of a page on the server: './admin/' gives '/Booking-system/admin/'. */
 function pathOf(relativePath: string) {

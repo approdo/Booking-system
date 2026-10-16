@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import { site } from './app/data/site'
+import { ADMIN_PAGE_PATHS } from './app/utils/adminNav'
 import { BOOKING_STEP_PATHS } from './app/utils/bookingSteps'
 import { homePaths, siteLocales } from './app/utils/locales'
 
@@ -45,8 +46,8 @@ export default defineNuxtConfig({
   nitro: {
     prerender: {
       // Write the home page of every language, the five booking screens (the "ถัดไป" button is not a link the
-      // crawler could follow) and the back office's entry; the crawler adds the pages they link to.
-      routes: [...new Set([...homePaths(locales), ...BOOKING_STEP_PATHS, '/admin/'])],
+      // crawler could follow) and every page of the back office (its links show only to a signed-in visitor).
+      routes: [...new Set([...homePaths(locales), ...BOOKING_STEP_PATHS, ...ADMIN_PAGE_PATHS])],
     },
   },
   vite: {
