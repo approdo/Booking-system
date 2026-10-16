@@ -7,7 +7,7 @@ import type { IconName } from './icons'
  *
  * A tab is in ADMIN_TABS only once its page exists, so no tab ever leads to a missing page (spec D1):
  *
- * - BK-008 adds "วันนี้" { key: 'today', icon 'home', path '/admin/today/' } first, and /admin/ then opens it;
+ * - "วันนี้" (BK-008) is first, so /admin/ and a login without `next` open it;
  * - BK-009 adds "ปฏิทิน" { key: 'calendar', icon 'cal', path '/admin/calendar/' } after "การจอง";
  * - BK-010 adds "ตารางงานหมอนวด" to SETTINGS_PAGES, which shows the sub-menu of "ตั้งค่าร้าน".
  *
@@ -40,6 +40,7 @@ export const SETTINGS_PAGES: readonly AdminPage[] = [
 ]
 
 export const ADMIN_TABS: readonly AdminTab[] = [
+  { key: 'today', label: 'วันนี้', icon: 'home', path: '/admin/today/', pages: ['/admin/today/'] },
   { key: 'bookings', label: 'การจอง', icon: 'list', path: '/admin/bookings/', pages: ['/admin/bookings/'], showsPending: true },
   { key: 'services', label: 'บริการ', icon: 'tag', path: '/admin/services/', pages: ['/admin/services/'] },
   { key: 'settings', label: 'ตั้งค่าร้าน', icon: 'set', path: SETTINGS_PAGES[0]!.path, pages: SETTINGS_PAGES.map(page => page.path) },

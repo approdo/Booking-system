@@ -27,6 +27,17 @@ export function thaiToday(now: number = Date.now()): string {
   return new Date(now + THAI_OFFSET_MS).toISOString().slice(0, 10)
 }
 
+/** The time now in Thai time, 'HH:MM'. */
+export function thaiTime(now: number = Date.now()): string {
+  return new Date(now + THAI_OFFSET_MS).toISOString().slice(11, 16)
+}
+
+/** 'เสาร์ 17 ตุลาคม 2569': the day under the heading of "วันนี้" in the back office. */
+export function fullDate(date: string): string {
+  const { buddhistYear, month, day, weekday } = parts(date)
+  return `${WEEKDAYS[weekday]} ${day} ${MONTHS[month]} ${buddhistYear}`
+}
+
 /** 'อาทิตย์ 18 ต.ค. 2569': the booking summary and the ticket. */
 export function longDate(date: string): string {
   const { buddhistYear, month, day, weekday } = parts(date)

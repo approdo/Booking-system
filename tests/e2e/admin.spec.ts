@@ -1,18 +1,20 @@
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Locator, Page, Route } from '@playwright/test'
 import { demoAccount } from '../../app/data/demoAccount'
+import { sampleBookings } from '../../app/data/sampleBookings'
 import { site } from '../../app/data/site'
+import type { AvailabilityResponse, BookingCreatedResponse } from '../../app/types/api'
 import { ADMIN_PAGE_PATHS, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
 import type { BookingDraft } from '../../app/utils/bookingDraft'
 import { DRAFT_STORAGE_KEYS } from '../../app/utils/bookingDraft'
-import { shortDateWithYear, spokenDate, thaiToday } from '../../app/utils/bookingFormat'
+import { fullDate, shortDateWithYear, spokenDate, thaiToday } from '../../app/utils/bookingFormat'
 import { addDays, weekdayOf } from '../../app/utils/bookingRules'
 import { STORAGE_KEYS } from '../../app/utils/bookingRepository'
 import { joinPhrases } from '../../app/utils/phrases'
 import { stateBanners } from '../../app/utils/statusBanners'
 
-// The back office (BK-007, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo account shown
-// on the page, the booking list, services and prices, and the opening hours, against the booking API on this
+// The back office (BK-007 and BK-008, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo
+// account shown on the page, "วันนี้", the booking list, services and prices, and the opening hours, against the booking API on this
 // machine (playwright.config.ts starts the Worker with a fresh local D1). Every test has its own browser
 // context, so its own sandbox: what one test changes no other test sees (D-004). Answers that are hard to cause
 // for real (429, demo_full, a dead network, an expired sandbox) are faked with page.route (lesson G-045).
@@ -179,7 +181,9 @@ test.describe('AC1: signing in and out', () => {
   })
 
   test('an expired sandbox and an ended session go back to the login page and say why (spec section 5)', async ({ page }) => {
+    // The first page ("วันนี้") reads /api/admin/shop too: let it finish before that answer is faked.
     await signIn(page)
+    await expect(todayCount(page, 'pending')).toBeVisible()
     await page.route(`${site.apiUrl}/api/admin/shop`, route => fakeAnswer(route, 410, { error: 'sandbox_expired' }))
     await page.getByRole('link', { name: 'บริการ', exact: true }).first().click()
     await expect(page).toHaveURL(urlOf(LOGIN_PATH))
@@ -193,6 +197,7 @@ test.describe('AC1: signing in and out', () => {
 
     await demoButton(page).click()
     await expect(page).toHaveURL(urlOf(ADMIN_TABS[0]!.path))
+    await expect(todayCount(page, 'pending')).toBeVisible()
     await page.route(`${site.apiUrl}/api/admin/shop`, route => fakeAnswer(route, 401, { error: 'unauthorized' }))
     await page.getByRole('link', { name: 'ตั้งค่าร้าน', exact: true }).first().click()
     await expect(page).toHaveURL(loginUrl('/admin/hours/'))
@@ -214,7 +219,7 @@ test.describe('AC2: the booking list', () => {
       if (localStorage.getItem(key) === null) localStorage.setItem(key, token)
     }, { key: STORAGE_KEYS.sandbox, token: created.sandbox.token })
 
-    await signIn(page)
+    await signIn(page, '/admin/bookings/')
     await expect(cards(page)).toHaveCount(8)
     await expect(page.getByText('8 รายการ')).toBeVisible()
     await expect(card(page, created.booking.code).getByText('ใหม่', { exact: true })).toBeVisible()
@@ -294,7 +299,7 @@ test.describe('AC2: the booking list', () => {
   })
 
   test('a failed change shows the spec\'s message inside the card; "ลองใหม่" sends it again (spec section 5)', async ({ page }) => {
-    await signIn(page)
+    await signIn(page, '/admin/bookings/')
     const target = card(page, 'NP-2MW8D')
     const patch = `${site.apiUrl}/api/admin/bookings/NP-2MW8D`
 
@@ -453,7 +458,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
 
   test('no sideways scrolling at 375, 768 and 1440; the cards have 1, 2 and 3 columns; the tab bar shows below 1024 (N6, spec D2)', async ({ page }) => {
     await signIn(page)
-    const pages = ['/admin/bookings/', '/admin/services/', '/admin/hours/']
+    const pages = ['/admin/today/', '/admin/bookings/', '/admin/services/', '/admin/hours/']
     for (const [width, columns] of [[375, 1], [768, 2], [1440, 3]] as const) {
       await page.setViewportSize({ width, height: 800 })
       for (const path of pages) {
@@ -478,7 +483,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
   test('at 375 every control is at least 44px high with 16px fields, and the tab bar never covers the last card or the keyboard focus (spec D3, G-014)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 640 })
     await signIn(page)
-    for (const path of ['/admin/bookings/', '/admin/services/', '/admin/hours/']) {
+    for (const path of ['/admin/today/', '/admin/bookings/', '/admin/services/', '/admin/hours/']) {
       await openPage(page, path)
       await page.locator('main .skeleton').first().waitFor({ state: 'detached' })
       const small = await page.evaluate(() => [...document.querySelectorAll('main a, main button, main input:not(.switch), main select, nav a, header button')]
@@ -515,6 +520,108 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
         })
         expect(covered, key).toBeNull()
       }
+    }
+  })
+})
+
+/** A moment in Thai time for the browser's clock: ('2026-10-17', '12:00') is 2026-10-17T05:00:00Z. */
+function thaiClock(date: string, time: string) {
+  return new Date(`${date}T${time}:00+07:00`)
+}
+
+/** The number of one status at the top of "วันนี้". */
+function todayCount(page: Page, status: string) {
+  return page.locator(`main a[data-status="${status}"] span`)
+}
+
+/** The bookings listed under "คิวถัดไป". */
+function followingCodes(page: Page) {
+  return page.getByRole('list', { name: 'คิวต่อจากนั้น' }).locator('li[data-code]')
+}
+
+/** The booking list with exactly this query, e.g. '?day=today&status=pending'. */
+function bookingListUrl(search: string) {
+  return (url: URL) => url.pathname === serverPath('/admin/bookings/') && url.search === search
+}
+
+test.describe('BK-008: today', () => {
+  test('today\'s bookings per status, the next one and those after it, and links to the list of today (AC2)', async ({ page }) => {
+    // The browser's clock stands at 12:00 Thai time today: the next booking of the starting data is 13:00.
+    const today = thaiToday()
+    await page.clock.setFixedTime(thaiClock(today, '12:00'))
+    await signIn(page)
+    await expect(page).toHaveURL(urlOf('/admin/today/'))
+    await expect(page.locator('h1')).toHaveText('วันนี้')
+    await expect(page.locator('h1 + p')).toHaveText(`${fullDate(today)} · ร้านเปิด 10:00–22:00 น.`)
+
+    for (const [status, count] of [['pending', 1], ['confirmed', 2], ['done', 2], ['cancelled', 1]] as const) {
+      await expect(todayCount(page, status), status).toHaveText(String(count))
+    }
+    const next = page.locator('#next-booking')
+    await expect(next.getByRole('heading')).toHaveText('13:00–14:30 · คุณเอมมา')
+    await expect(next).toContainText('นวดน้ำมันอโรมา 90 นาที · มาลัย')
+    await expect(followingCodes(page)).toHaveCount(2)
+    expect(await followingCodes(page).evaluateAll(items => items.map(item => item.getAttribute('data-code')))).toEqual(['NP-2MW8D', 'NP-5TB9L'])
+    await expect(followingCodes(page).first().getByText('รอยืนยัน', { exact: true })).toBeVisible()
+
+    // A number leads to the list of today with that status.
+    await page.locator('main a[data-status="pending"]').click()
+    await expect(page).toHaveURL(bookingListUrl('?day=today&status=pending'))
+    await expect(cards(page)).toHaveCount(1)
+    await expect(card(page, 'NP-2MW8D')).toBeVisible()
+
+    // "ดูการจองวันนี้ทั้งหมด": every booking of today, with the day filter on "วันนี้".
+    await openPage(page, '/admin/today/')
+    await page.getByRole('link', { name: 'ดูการจองวันนี้ทั้งหมด' }).click()
+    await expect(page).toHaveURL(bookingListUrl('?day=today'))
+    await expect(cards(page)).toHaveCount(sampleBookings.filter(item => item.dayOffset === 0).length)
+    await expect(page.getByRole('group', { name: 'ช่วงวัน' }).getByRole('button', { name: 'วันนี้' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('a new booking for today adds one to its status and is "คิวถัดไป" when it really is next (AC1)', async ({ page, request }) => {
+    // The first start time still free today (Thai time) that no booking of the starting data has.
+    const availability = await (await request.get(`${site.apiUrl}/api/availability?minutes=60&therapist=any`)).json() as AvailabilityResponse
+    const today = availability.days[0]!
+    const startingTimes = new Set(sampleBookings.filter(item => item.dayOffset === 0).map(item => item.start))
+    const slot = today.slots.find(item => item.available && !startingTimes.has(item.time))
+    test.skip(!slot, 'No start time is free any more today in Thai time: run this test before the last booking time (20:30).')
+    const start = thaiClock(today.date, slot!.time)
+
+    // The browser's clock stands at that start time, so no other booking can come before the new one.
+    await page.clock.setFixedTime(start)
+    await signIn(page)
+    await expect(todayCount(page, 'pending')).toHaveText(/^\d+$/)
+    const before = Number(await todayCount(page, 'pending').textContent())
+
+    // Book in the visitor's own sandbox (the token the sign-in left in localStorage); new bookings wait as "รอยืนยัน".
+    const token = await page.evaluate(key => localStorage.getItem(key), STORAGE_KEYS.sandbox)
+    const response = await request.post(`${site.apiUrl}/api/bookings`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { serviceId: 'thai-traditional', minutes: 60, therapistId: null, date: today.date, time: slot!.time, name: 'ทดลอง วันนี้', phone: '02-000-0000' },
+    })
+    expect(response.status()).toBe(201)
+    const { booking } = await response.json() as BookingCreatedResponse
+    expect(booking.status).toBe('pending')
+
+    await page.reload()
+    await expect(todayCount(page, 'pending')).toHaveText(String(before + 1))
+    await expect(page.locator('#next-booking h2')).toHaveText(`${booking.start}–${booking.end} · ทดลอง วันนี้`)
+
+    // A minute after it started it is no longer next, and the count stays.
+    await page.clock.setFixedTime(new Date(start.getTime() + 60_000))
+    await page.reload()
+    await expect(todayCount(page, 'pending')).toHaveText(String(before + 1))
+    await expect(page.locator('main').getByText('ทดลอง วันนี้')).toHaveCount(0)
+  })
+
+  test('the numbers are 2 × 2 at 375 and in one row from 768 (spec section 8)', async ({ page }) => {
+    await signIn(page)
+    for (const [width, columns] of [[375, 2], [768, 4], [1440, 4]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await openPage(page, '/admin/today/')
+      await expect(todayCount(page, 'pending')).toBeVisible()
+      const lefts = await page.locator('main a[data-status]').evaluateAll(items => new Set(items.map(item => Math.round(item.getBoundingClientRect().left))).size)
+      expect(lefts, `${width}px`).toBe(columns)
     }
   })
 })

@@ -18,6 +18,7 @@ export const ICON_PATHS = {
     'M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8',
   ],
   // The back office (spec section 7): tabs, sign out, search, add.
+  home: ['M4 11l8-6.5 8 6.5V20H4z', 'M10 20v-5h4v5'],
   list: ['M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01'],
   tag: ['M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9z', 'M10 8.5a1.5 1.5 0 1 1-3 0a1.5 1.5 0 1 1 3 0z'],
   set: ['M4 7h10M18 7h2M4 17h4M12 17h8', 'M18 7a2 2 0 1 1-4 0a2 2 0 1 1 4 0z', 'M12 17a2 2 0 1 1-4 0a2 2 0 1 1 4 0z'],

@@ -33,6 +33,8 @@ describe('ADMIN_TABS', () => {
 
   it('opens the first tab from /admin/, and generates every page with the login page', () => {
     expect(ADMIN_HOME_PATH).toBe(ADMIN_TABS[0]?.path)
+    // "วันนี้" (BK-008) is the first page after signing in (spec section 2).
+    expect(ADMIN_HOME_PATH).toBe('/admin/today/')
     expect(ADMIN_PAGE_PATHS).toEqual(expect.arrayContaining(['/admin/', LOGIN_PATH, ...ADMIN_TABS.map(tab => tab.path)]))
     expect(new Set(ADMIN_PAGE_PATHS).size).toBe(ADMIN_PAGE_PATHS.length)
   })
@@ -40,6 +42,7 @@ describe('ADMIN_TABS', () => {
 
 describe('currentTab', () => {
   it('finds the tab of a page, with or without the last "/"', () => {
+    expect(currentTab('/admin/today/')?.key).toBe('today')
     expect(currentTab('/admin/bookings/')?.key).toBe('bookings')
     expect(currentTab('/admin/services')?.key).toBe('services')
     expect(currentTab('/admin/hours/')?.key).toBe('settings')
