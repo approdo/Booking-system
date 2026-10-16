@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { seed } from '../../app/data/seed'
+import { addDays } from '../../app/utils/bookingRules'
 import type { AvailabilityContext } from '../src/availability'
 import { bookingWindow, dayAvailability, isAvailable } from '../src/availability'
 import type { BusyTime, Therapist } from '../src/shop'
@@ -110,5 +111,41 @@ describe('"no preference" is free while at least one therapist is free (AC1 c)',
     expect(dayAvailability(context(), '2026-10-19', 60, null).status).toBe('available')
     const others = ids.filter(id => id !== 'somsri').map(id => busy(id, '10:00', '11:00', '2026-10-19'))
     expect(isAvailable(context(others), { date: '2026-10-19', start: 10 * 60, minutes: 60, therapistId: null })).toBe(false)
+  })
+})
+
+describe('a therapist\'s leave day (BK-010 AC1)', () => {
+  // Saturday 24 October: all four therapists work, Malai is on leave.
+  const DAY = '2026-10-24'
+  const malaiOnLeave = therapists.map(therapist => (therapist.id === 'malai' ? { ...therapist, leaveDates: [DAY] } : therapist))
+  const onLeave = (busyTimes: BusyTime[] = []) => context(busyTimes, { shop: { therapists: malaiOnLeave, hours, closedDates: [] } })
+  const others = ids.filter(id => id !== 'malai')
+
+  it('gives the therapist on leave no times that day, and leaves the others and "no preference" free', () => {
+    const chosen = dayAvailability(onLeave(), DAY, 60, 'malai')
+    expect(chosen.status).toBe('closed')
+    expect(chosen.slots).toEqual([])
+    expect(dayAvailability(onLeave(), addDays(DAY, 1), 60, 'malai').status).toBe('available')
+    for (const therapistId of [...others, null]) {
+      const day = dayAvailability(onLeave(), DAY, 60, therapistId)
+      expect(day.status, String(therapistId)).toBe('available')
+      expect(slotTimes(day, true), String(therapistId)).toHaveLength(22)
+    }
+  })
+
+  it('counts only the therapists who work for "no preference"', () => {
+    // At 15:00 two of the others are booked and one booking has no preference. With Malai at work that leaves
+    // one therapist free; with Malai on leave nobody.
+    const busyTimes = [busy(others[0]!, '15:00', '16:00', DAY), busy(others[1]!, '15:00', '16:00', DAY), busy(null, '15:00', '16:00', DAY)]
+    const at15 = { date: DAY, start: 15 * 60, minutes: 60 }
+    expect(isAvailable(context(busyTimes), { ...at15, therapistId: null })).toBe(true)
+    expect(isAvailable(onLeave(busyTimes), { ...at15, therapistId: null })).toBe(false)
+    expect(isAvailable(onLeave(busyTimes), { ...at15, therapistId: others[2]! })).toBe(false)
+    expect(dayAvailability(onLeave(busyTimes), DAY, 60, null).slots.find(slot => slot.time === '15:00')?.available).toBe(false)
+  })
+
+  it('closes the day for "no preference" too when nobody works', () => {
+    const nobody = therapists.map(therapist => ({ ...therapist, leaveDates: [DAY] }))
+    expect(dayAvailability(context([], { shop: { therapists: nobody, hours, closedDates: [] } }), DAY, 60, null).status).toBe('closed')
   })
 })

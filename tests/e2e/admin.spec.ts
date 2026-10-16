@@ -8,15 +8,16 @@ import type { AvailabilityResponse, BookingCreatedResponse } from '../../app/typ
 import { ADMIN_PAGE_PATHS, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
 import type { BookingDraft } from '../../app/utils/bookingDraft'
 import { DRAFT_STORAGE_KEYS } from '../../app/utils/bookingDraft'
-import { fullDate, shortDateWithYear, spokenDate, thaiToday } from '../../app/utils/bookingFormat'
+import { fullDate, shortDateWithYear, spokenDate, thaiToday, weekdayName } from '../../app/utils/bookingFormat'
 import { addDays, weekdayOf } from '../../app/utils/bookingRules'
 import { STORAGE_KEYS } from '../../app/utils/bookingRepository'
 import { UNASSIGNED } from '../../app/utils/calendarDay'
 import { joinPhrases } from '../../app/utils/phrases'
 import { stateBanners } from '../../app/utils/statusBanners'
 
-// The back office (BK-007 to BK-009, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo
-// account shown on the page, "วันนี้", the booking list, the calendar, services and prices, and the opening hours, against the booking API on this
+// The back office (BK-007 to BK-010, spec sections 2, 3, 5, 7, 8 and 11; design B): signing in with the demo
+// account shown on the page, "วันนี้", the booking list, the calendar, services and prices, the opening hours and
+// the therapists' working days, against the booking API on this
 // machine (playwright.config.ts starts the Worker with a fresh local D1). Every test has its own browser
 // context, so its own sandbox: what one test changes no other test sees (D-004). Answers that are hard to cause
 // for real (429, demo_full, a dead network, an expired sandbox) are faked with page.route (lesson G-045).
@@ -460,7 +461,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
 
   test('no sideways scrolling at 375, 768 and 1440; the cards have 1, 2 and 3 columns; the tab bar shows below 1024 (N6, spec D2)', async ({ page }) => {
     await signIn(page)
-    const pages = ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/']
+    const pages = ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/', '/admin/therapists/']
     for (const [width, columns] of [[375, 1], [768, 2], [1440, 3]] as const) {
       await page.setViewportSize({ width, height: 800 })
       for (const path of pages) {
@@ -485,7 +486,7 @@ test.describe('AC5: noindex, sizes and the tab bar', () => {
   test('at 375 every control is at least 44px high with 16px fields, and the tab bar never covers the last card or the keyboard focus (spec D3, G-014)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 640 })
     await signIn(page)
-    for (const path of ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/']) {
+    for (const path of ['/admin/today/', '/admin/bookings/', '/admin/calendar/', '/admin/services/', '/admin/hours/', '/admin/therapists/']) {
       await openPage(page, path)
       await page.locator('main .skeleton').first().waitFor({ state: 'detached' })
       const small = await page.evaluate(() => [...document.querySelectorAll('main a, main button, main input:not(.switch), main select, nav a, header button')]
@@ -806,5 +807,125 @@ test.describe('BK-009: calendar', () => {
     await openPage(page, `/admin/calendar/?date=${addDays(today, 15)}`)
     await calendarLoaded(page)
     await expectVisibleText(page, 'ไม่มีการจองในวันนี้')
+  })
+})
+
+/** The card of a therapist in "ตารางงานหมอนวด". */
+function therapistCard(page: Page, id: string) {
+  return page.locator(`li[data-therapist="${id}"]`)
+}
+
+/** The regular days off of a therapist in the starting data (spec section 10). */
+function daysOffOf(person: typeof therapists[number]) {
+  return person.daysOff as readonly number[]
+}
+
+/** Puts a 60-minute Thai massage with this therapist (null = "ไม่ระบุ") in the draft, then opens "วันและเวลา". */
+async function openTimesFor(page: Page, person: { id: string, name: string } | null) {
+  const draft: BookingDraft = {
+    service: { id: 'thai-traditional', name: 'นวดแผนไทย', minutes: 60, price: 400 },
+    therapist: person ? { id: person.id, name: person.name } : { id: null, name: 'ไม่ระบุ' },
+  }
+  await page.evaluate(({ key, value }) => sessionStorage.setItem(key, value), { key: DRAFT_STORAGE_KEYS.draft, value: JSON.stringify(draft) })
+  await openPage(page, '/time/')
+}
+
+/** Waits for the answer of the API to a change of a therapist's days. */
+function therapistSaved(page: Page) {
+  return page.waitForResponse(response => /\/api\/admin\/therapists\//.test(response.url()) && response.request().method() !== 'OPTIONS')
+}
+
+test.describe('BK-010: therapists\' working days', () => {
+  test('a regular day off and a leave date take those days away from that therapist only; "ไม่ระบุ" still has times (AC1)', async ({ page }) => {
+    // Two days in the first week of the booking window on which two therapists both work (each has one day off).
+    const today = thaiToday()
+    const leaveDay = addDays(today, 2)
+    const dayOff = addDays(today, 3)
+    const worksBoth = (person: typeof therapists[number]) => [leaveDay, dayOff].every(date => !daysOffOf(person).includes(weekdayOf(date)))
+    const person = therapists.find(worksBoth)!
+    const other = therapists.find(candidate => candidate.id !== person.id && worksBoth(candidate))!
+
+    await signIn(page, '/admin/therapists/')
+    const subMenu = page.getByRole('navigation', { name: 'หัวข้อตั้งค่าร้าน' })
+    await expect(subMenu.getByRole('link', { name: 'ตารางงานหมอนวด' })).toHaveAttribute('aria-current', 'page')
+    await expect(subMenu.getByRole('link', { name: 'เวลาเปิดปิดร้าน' })).not.toHaveAttribute('aria-current')
+    await expect(page.locator('main li[data-therapist]')).toHaveCount(therapists.length)
+
+    const card = therapistCard(page, person.id)
+    const summary = card.locator('[data-work-summary]')
+    await expect(summary).toHaveText(`ทำงาน 6 วัน · หยุด${daysOffOf(person).map(weekdayName).join('')}`)
+    await expectVisibleText(card, 'ยังไม่มีวันลา')
+
+    // A regular day off: the day of the week of `dayOff`. The button turns white and the line under the name follows.
+    const dayButton = card.getByRole('group', { name: `วันทำงานของ${person.name}` })
+      .getByRole('button', { name: weekdayName(weekdayOf(dayOff)), exact: true })
+    await expect(dayButton).toHaveAttribute('aria-pressed', 'true')
+    const savedDays = therapistSaved(page)
+    await dayButton.click()
+    expect((await savedDays).status()).toBe(200)
+    await expect(dayButton).toHaveAttribute('aria-pressed', 'false')
+    await expect(summary).toHaveText(/^ทำงาน 5 วัน · หยุด/)
+
+    // A leave date on `leaveDay`: an empty date is an error, then the date is listed and the focus goes back.
+    const addLeave = card.getByRole('button', { name: `เพิ่มวันลา ของ${person.name}` })
+    await addLeave.click()
+    const dateField = card.getByLabel('วันที่')
+    await expect(dateField).toBeFocused()
+    await card.getByRole('button', { name: 'เพิ่ม', exact: true }).click()
+    await expect(dateField).toHaveAttribute('aria-invalid', 'true')
+    await dateField.fill(leaveDay)
+    const savedLeave = therapistSaved(page)
+    await card.getByRole('button', { name: 'เพิ่ม', exact: true }).click()
+    expect((await savedLeave).status()).toBe(200)
+    await expectVisibleText(card, shortDateWithYear(leaveDay))
+    await expect(addLeave).toBeFocused()
+
+    // A reload shows what was saved.
+    await page.reload()
+    await expect(dayButton).toHaveAttribute('aria-pressed', 'false')
+    await expectVisibleText(card, shortDateWithYear(leaveDay))
+
+    // The customer, in the same browser: with this therapist both days are "หยุด" and cannot be chosen.
+    await openTimesFor(page, person)
+    for (const date of [leaveDay, dayOff]) await expect(page.getByRole('radio', { name: `${spokenDate(date)} หยุด` })).toBeDisabled()
+
+    // With another therapist who works then, and with "ไม่ระบุ", both days still have every time of the day.
+    for (const choice of [other, null]) {
+      await openTimesFor(page, choice)
+      for (const date of [leaveDay, dayOff]) {
+        await page.getByRole('radio', { name: `${spokenDate(date)} ว่าง` }).locator('xpath=ancestor::label[1]').click()
+        await expect(page.locator('input[name="time"]:enabled'), `${choice?.id ?? 'any'} ${date}`).toHaveCount(22)
+      }
+    }
+
+    // Removing the leave date gives the day back.
+    await openPage(page, '/admin/therapists/')
+    const removed = therapistSaved(page)
+    await card.getByRole('button', { name: `ลบ วันลาของ${person.name} ${shortDateWithYear(leaveDay)}` }).click()
+    expect((await removed).status()).toBe(200)
+    await expectVisibleText(card, 'ยังไม่มีวันลา')
+    await openTimesFor(page, person)
+    await expect(page.getByRole('radio', { name: `${spokenDate(leaveDay)} ว่าง` })).toBeEnabled()
+  })
+
+  test('cards in 1, 2 and 2 columns at 375, 768 and 1440, seven day buttons inside each card; the sub-menu leads to the opening hours', async ({ page }) => {
+    await signIn(page, '/admin/therapists/')
+    for (const [width, columns] of [[375, 1], [768, 2], [1440, 2]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.locator('main li[data-therapist]').first().waitFor()
+      const lefts = await page.locator('main li[data-therapist]').evaluateAll(items => new Set(items.map(item => Math.round(item.getBoundingClientRect().left))).size)
+      expect(lefts, `${width}px`).toBe(columns)
+      const outside = await page.locator('main li[data-therapist]').evaluateAll(items => items.flatMap((item) => {
+        const box = item.getBoundingClientRect()
+        const buttons = [...item.querySelectorAll('[role="group"] button')]
+        return buttons.length === 7 && buttons.every(button => button.getBoundingClientRect().right <= box.right) ? [] : [item.getAttribute('data-therapist')]
+      }))
+      expect(outside, `${width}px`).toEqual([])
+    }
+
+    await page.getByRole('navigation', { name: 'หัวข้อตั้งค่าร้าน' }).getByRole('link', { name: 'เวลาเปิดปิดร้าน' }).click()
+    await expect(page).toHaveURL(urlOf('/admin/hours/'))
+    await expect(page.getByRole('navigation', { name: 'หัวข้อตั้งค่าร้าน' }).getByRole('link', { name: 'เวลาเปิดปิดร้าน' })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('ตั้งค่าร้าน')
   })
 })

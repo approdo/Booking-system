@@ -10,8 +10,8 @@ import type { BannerContent } from '~/utils/statusBanners'
 
 // "ตั้งค่าร้าน" › "เวลาเปิดปิดร้าน" (spec section 7, design B): the regular opening hours, the same every day or
 // day by day, saved with "บันทึก"; and special closed days, added and removed at once. The customer's times
-// follow both in the same browser (BK-007 AC4). The sub-menu of "ตั้งค่าร้าน" appears when BK-010 adds its page
-// (SETTINGS_PAGES in app/utils/adminNav.ts). noindex: app.vue.
+// follow both in the same browser (BK-007 AC4). The sub-menu of "ตั้งค่าร้าน" leads to "ตารางงานหมอนวด" (BK-010,
+// SETTINGS_PAGES in app/utils/adminNav.ts). noindex: app.vue.
 definePageMeta({ layout: 'admin' })
 useSeoMeta({ title: pageTitle('admin', 'เวลาเปิดปิดร้าน') })
 
@@ -192,6 +192,7 @@ onMounted(loadShop)
         title="ตั้งค่าร้าน"
         :detail="['เวลาเปิดปิดร้าน ', '· ลูกค้าเลือกเวลาได้', 'เฉพาะช่วงที่ร้านเปิด']"
       />
+      <AdminSettingsNav />
 
       <UiLoading v-if="listState === 'loading'">
         <div class="skeleton h-[230px] rounded-card" />

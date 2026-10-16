@@ -91,4 +91,17 @@ describe('therapists\' working days and days off', () => {
     expect((await api.request('DELETE', '/api/admin/therapists/somsri/leave-dates/2026-10-22', { token: session })).body.therapist.leaveDates).toEqual([])
     expect((await api.request('PATCH', '/api/admin/therapists/somsri', { token: session, body: { workDays: [7] } })).body.fields).toEqual({ workDays: 'invalid' })
   })
+
+  it('refuses a booking with a therapist on their day off, and takes it with "no preference" (BK-010 AC1)', async () => {
+    const { api, session, sandbox } = await signedIn()
+    // Malai is on leave on Saturday 24 October and stops working on Sundays.
+    expect((await api.request('POST', '/api/admin/therapists/malai/leave-dates', { token: session, body: { date: '2026-10-24' } })).status).toBe(200)
+    expect((await api.request('PATCH', '/api/admin/therapists/malai', { token: session, body: { workDays: [1, 3, 4, 5, 6] } })).status).toBe(200)
+
+    for (const date of ['2026-10-24', '2026-10-25']) {
+      expect((await api.book({ therapistId: 'malai', date, time: '14:00' }, { token: sandbox })).body.error, date).toBe('slot_taken')
+      expect((await api.book({ therapistId: null, date, time: '14:00' }, { token: sandbox })).status, date).toBe(201)
+    }
+    expect((await api.book({ therapistId: 'malai', date: '2026-10-23', time: '14:00' }, { token: sandbox })).status).toBe(201)
+  })
 })

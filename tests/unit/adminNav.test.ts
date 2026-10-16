@@ -31,6 +31,12 @@ describe('ADMIN_TABS', () => {
     expect(SETTINGS_PAGES[0]?.path).toBe('/admin/hours/')
   })
 
+  it('has "ตารางงานหมอนวด" (BK-010) as a page of "ตั้งค่าร้าน", after the opening hours (spec C10)', () => {
+    expect(SETTINGS_PAGES.map(page => page.label)).toEqual(['เวลาเปิดปิดร้าน', 'ตารางงานหมอนวด'])
+    expect(ADMIN_TABS.find(tab => tab.key === 'settings')?.pages).toEqual(SETTINGS_PAGES.map(page => page.path))
+    expect(ADMIN_PAGE_PATHS).toContain('/admin/therapists/')
+  })
+
   it('opens the first tab from /admin/, and generates every page with the login page', () => {
     expect(ADMIN_HOME_PATH).toBe(ADMIN_TABS[0]?.path)
     // "วันนี้" (BK-008) is the first page after signing in (spec section 2).
@@ -47,6 +53,7 @@ describe('currentTab', () => {
     expect(currentTab('/admin/calendar/')?.key).toBe('calendar')
     expect(currentTab('/admin/services')?.key).toBe('services')
     expect(currentTab('/admin/hours/')?.key).toBe('settings')
+    expect(currentTab('/admin/therapists/')?.key).toBe('settings')
     expect(currentTab('/admin/login/')).toBeNull()
   })
 })

@@ -9,7 +9,8 @@ import type { IconName } from './icons'
  *
  * - "วันนี้" (BK-008) is first, so /admin/ and a login without `next` open it;
  * - "ปฏิทิน" (BK-009) comes after "การจอง";
- * - BK-010 adds "ตารางงานหมอนวด" to SETTINGS_PAGES, which shows the sub-menu of "ตั้งค่าร้าน".
+ * - "ตารางงานหมอนวด" (BK-010) is the second page of "ตั้งค่าร้าน" (SETTINGS_PAGES): with two pages, the tab's
+ *   pages show a sub-menu (app/components/admin/AdminSettingsNav.vue).
  *
  * A screen that is cut (D-002) is simply never added. The tab bar has as many columns as there are tabs.
  *
@@ -37,6 +38,7 @@ export interface AdminPage {
 /** The pages under "ตั้งค่าร้าน". The tab always leads to the first one, the opening hours (spec C10). */
 export const SETTINGS_PAGES: readonly AdminPage[] = [
   { path: '/admin/hours/', label: 'เวลาเปิดปิดร้าน' },
+  { path: '/admin/therapists/', label: 'ตารางงานหมอนวด' },
 ]
 
 export const ADMIN_TABS: readonly AdminTab[] = [

@@ -61,6 +61,11 @@ export function weekdayName(weekday: number): string {
   return WEEKDAYS[weekday] ?? ''
 }
 
+/** 'จ.' for 1: the short name of a day of the week (0 = Sunday), on a therapist's day buttons. */
+export function shortWeekdayName(weekday: number): string {
+  return WEEKDAYS_SHORT[weekday] ?? ''
+}
+
 /** 'อาทิตย์ 18 ต.ค.': next to the times of a day. */
 export function dayWithMonth(date: string): string {
   const { month, day, weekday } = parts(date)
