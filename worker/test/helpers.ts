@@ -108,6 +108,53 @@ export async function sandboxRowCounts(sandboxId: string): Promise<SandboxRowCou
   return counts
 }
 
+/**
+ * The local D1 with a meter: adds up the `rows_read` that D1 reports for every query the Worker runs. Pass
+ * `db` as the DB binding (`testApi({ env: { DB: reads.db } })`) to check how much one request reads: D1's
+ * free plan reads 5,000,000 rows a day for everyone (BK-001), so no request may read more and more rows.
+ */
+export function rowsReadCounter(database: D1Database = env.DB) {
+  let total = 0
+  const count = <T extends D1Result>(result: T): T => {
+    total += result.meta.rows_read
+    return result
+  }
+  // batch() needs D1's own statements, so every wrapper remembers the statement it wraps.
+  const originals = new WeakMap<object, D1PreparedStatement>()
+
+  function meter(statement: D1PreparedStatement): D1PreparedStatement {
+    const metered = {
+      bind: (...values: unknown[]) => meter(statement.bind(...values)),
+      all: async () => count(await statement.all()),
+      run: async () => count(await statement.run()),
+      // Through all(), which reports rows_read; first() does not.
+      first: async (column?: string) => {
+        const row = (count(await statement.all<Record<string, unknown>>()).results[0]) ?? null
+        return column === undefined || row === null ? row : row[column]
+      },
+    }
+    originals.set(metered, statement)
+    return metered as unknown as D1PreparedStatement
+  }
+
+  const db = {
+    prepare: (sql: string) => meter(database.prepare(sql)),
+    batch: async (statements: D1PreparedStatement[]) =>
+      (await database.batch(statements.map(statement => originals.get(statement) ?? statement))).map(count),
+  }
+
+  return {
+    db: db as unknown as D1Database,
+    /** Rows read since the counter was made or last reset. */
+    get total() {
+      return total
+    },
+    reset() {
+      total = 0
+    },
+  }
+}
+
 /** Rows written today (UTC) according to the write budget. */
 export async function budgetUsed(day: string): Promise<number> {
   const row = await env.DB.prepare('SELECT rows FROM write_budget WHERE day = ?1').bind(day).first<{ rows: number }>()

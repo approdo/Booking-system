@@ -27,6 +27,35 @@ const SOMEONE_IS_FREE = `
   (SELECT COUNT(*) FROM free) - (SELECT COUNT(*) FROM busy WHERE therapist_id IS NULL) >= 1
   AND (?6 IS NULL OR ?6 IN (SELECT id FROM free))`
 
+/**
+ * The limits on new bookings of one sandbox (D-004, D-008): at most `perWindow` made after `windowStart`
+ * (BOOKINGS_PER_10_MINUTES) and at most `perSandbox` in its whole life (BOOKINGS_PER_SANDBOX), so that
+ * reading a sandbox's bookings stays small. The bookings themselves are the count: no counter table.
+ */
+export interface BookingLimits {
+  windowStart: number
+  perWindow: number
+  perSandbox: number
+}
+
+/**
+ * The limits in SQL, for the INSERT itself: a check made before writing lets requests sent at the same
+ * moment all pass it, while D1 runs this statement after the previous one has written.
+ * Parameters: ?1 sandbox, ?15 window start, ?16 per window, ?17 per sandbox.
+ */
+const WITHIN_LIMITS = `
+  (SELECT COUNT(*) FROM bookings WHERE sandbox_id = ?1 AND is_seed = 0 AND created_at > ?15) < ?16
+  AND (SELECT COUNT(*) FROM bookings WHERE sandbox_id = ?1 AND is_seed = 0) < ?17`
+
+/** Whether the sandbox has used up one of its limits on new bookings. */
+export async function bookingLimitReached(store: Store, sandboxId: string, limits: BookingLimits): Promise<boolean> {
+  const row = await store.first<{ total: number, recent: number }>(store.prepare(
+    `SELECT COUNT(*) AS total, COUNT(CASE WHEN created_at > ?2 THEN 1 END) AS recent
+     FROM bookings WHERE sandbox_id = ?1 AND is_seed = 0`,
+  ).bind(sandboxId, limits.windowStart))
+  return (row?.recent ?? 0) >= limits.perWindow || (row?.total ?? 0) >= limits.perSandbox
+}
+
 export interface NewBooking {
   sandboxId: string
   code: string
@@ -42,13 +71,16 @@ export interface NewBooking {
   createdAt: number
 }
 
-/** Inserts a 'pending' booking only if the time is still free; `changes` is 0 when it was taken. */
-export function insertBookingStatement(store: Store, booking: NewBooking): D1PreparedStatement {
+/**
+ * Inserts a 'pending' booking only if the time is still free and the sandbox is within its limits;
+ * `changes` is 0 otherwise (bookingLimitReached() tells which).
+ */
+export function insertBookingStatement(store: Store, booking: NewBooking, limits: BookingLimits): D1PreparedStatement {
   return store.prepare(`${FREE_THERAPIST_CTE}
     INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date, start_min, end_min,
       customer_name, phone, status, is_seed, created_at)
     SELECT ?1, ?7, ?8, ?9, ?10, ?11, ?6, ?2, ?3, ?4, ?12, ?13, 'pending', 0, ?14
-    WHERE ${SOMEONE_IS_FREE}`).bind(
+    WHERE ${SOMEONE_IS_FREE} AND ${WITHIN_LIMITS}`).bind(
     booking.sandboxId,
     booking.date,
     booking.start,
@@ -63,6 +95,9 @@ export function insertBookingStatement(store: Store, booking: NewBooking): D1Pre
     booking.customerName,
     booking.phone,
     booking.createdAt,
+    limits.windowStart,
+    limits.perWindow,
+    limits.perSandbox,
   )
 }
 

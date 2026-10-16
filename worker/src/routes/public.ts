@@ -9,7 +9,8 @@ import {
   validateCustomer,
 } from '../../../app/utils/bookingRules'
 import { bookingWindow, dayAvailability, isAvailable } from '../availability'
-import { insertBookingStatement } from '../bookings'
+import { bookingLimitReached, insertBookingStatement } from '../bookings'
+import type { BookingLimits } from '../bookings'
 import type { Context, Handler } from '../context'
 import { ApiError, invalidInput } from '../errors'
 import { ROWS_ESTIMATE } from '../estimates'
@@ -122,13 +123,14 @@ export const createBooking: Handler = async (context) => {
   if (therapistId !== null && !shop.therapists.some(therapist => therapist.id === therapistId)) fields.therapistId = 'unknown'
   if (Object.keys(fields).length > 0 || !service || !option || start === null) throw invalidInput(fields)
 
-  // 2. At most BOOKINGS_PER_10_MINUTES new bookings per sandbox; the bookings themselves are the count.
-  if (sandbox) {
-    const recent = await store.first<{ count: number }>(store.prepare(
-      'SELECT COUNT(*) AS count FROM bookings WHERE sandbox_id = ?1 AND is_seed = 0 AND created_at > ?2',
-    ).bind(sandbox.id, now - 10 * MINUTE_MS))
-    if ((recent?.count ?? 0) >= settings.bookingsPer10Minutes) throw new ApiError('rate_limited')
+  // 2. At most BOOKINGS_PER_10_MINUTES new bookings per sandbox, and BOOKINGS_PER_SANDBOX in all. Checked
+  // here to answer early, and again by the INSERT itself (requests sent at the same moment).
+  const limits: BookingLimits = {
+    windowStart: now - 10 * MINUTE_MS,
+    perWindow: settings.bookingsPer10Minutes,
+    perSandbox: settings.bookingsPerSandbox,
   }
+  if (sandbox && await bookingLimitReached(store, sandbox.id, limits)) throw new ApiError('rate_limited')
 
   // 3. Is the time free (opening hours, today's past times, therapists)? Checked again inside the INSERT.
   const busy = await loadBusyTimes(store, sandbox?.id ?? SEED_SANDBOX, date, date)
@@ -154,7 +156,7 @@ export const createBooking: Handler = async (context) => {
       const statements = [...(created?.statements ?? []), insertBookingStatement(store, {
         sandboxId, code, serviceId: service.id, serviceName: service.name, minutes, price: option.price,
         therapistId, date, start, customerName: customer.name, phone: customer.phone, createdAt: now,
-      })]
+      }, limits)]
 
       let results: D1Result[]
       try {
@@ -167,7 +169,11 @@ export const createBooking: Handler = async (context) => {
 
       if (created && !sandboxCreated(results)) throw new ApiError('rate_limited')
       const newSandboxDetails = created ? { sandbox: { token: created.token, expiresAt: new Date(now + settings.sandboxTtlMs).toISOString() } } : {}
-      if (results.at(-1)?.meta.changes !== 1) throw new ApiError('slot_taken', newSandboxDetails)
+      if (results.at(-1)?.meta.changes !== 1) {
+        // The INSERT refused: either the time was taken meanwhile, or other requests used up the limit.
+        if (sandbox && await bookingLimitReached(store, sandbox.id, limits)) throw new ApiError('rate_limited')
+        throw new ApiError('slot_taken', newSandboxDetails)
+      }
 
       const booking: Booking = {
         code,

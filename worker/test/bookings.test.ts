@@ -25,9 +25,10 @@ describe('two bookings of the same time at the same moment (AC1 d)', () => {
     const sandboxId = await sha256(body.sandbox.token)
     const store = new Store(env.DB, 60_000, SATURDAY_9AM)
     const booking = { sandboxId, serviceId: 'thai-traditional', serviceName: 'นวดแผนไทย', minutes: 60, price: 400, therapistId: 'preecha', date: TODAY, start: 16 * 60, customerName: 'ทดลอง ตัวอย่าง', phone: '020000000', createdAt: SATURDAY_9AM }
+    const limits = { windowStart: 0, perWindow: 100, perSandbox: 100 } // far from both limits
     const results = await env.DB.batch([
-      insertBookingStatement(store, { ...booking, code: 'NP-AAAA2' }),
-      insertBookingStatement(store, { ...booking, code: 'NP-AAAA3' }),
+      insertBookingStatement(store, { ...booking, code: 'NP-AAAA2' }, limits),
+      insertBookingStatement(store, { ...booking, code: 'NP-AAAA3' }, limits),
     ])
     expect(results.map(result => result.meta.changes)).toEqual([1, 0])
   })

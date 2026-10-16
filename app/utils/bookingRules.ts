@@ -197,12 +197,18 @@ export const SERVICE_NAME_MIN_LENGTH = 2
 export const SERVICE_NAME_MAX_LENGTH = 60
 export const SERVICE_DESCRIPTION_MAX_LENGTH = 200
 export const SERVICE_MAX_OPTIONS = 4
+/**
+ * Services one shop (one sandbox of the demo) can have. The API refuses more with the field error
+ * 'services_too_many': a sandbox that keeps growing would make every read of it bigger (BK-005).
+ */
+export const SERVICE_MAX_COUNT = 30
 export const PRICE_MIN = 1
 export const PRICE_MAX = 100_000
 
 export type ServiceFieldError
   = | 'name_required' | 'name_length' | 'description_too_long' | 'category_unknown'
     | 'options_required' | 'options_too_many' | 'minutes_invalid' | 'minutes_repeated' | 'price_invalid'
+    | 'services_too_many'
 
 export const serviceFieldMessages: Readonly<Record<ServiceFieldError, string>> = {
   name_required: 'กรุณากรอกชื่อบริการ',
@@ -214,6 +220,7 @@ export const serviceFieldMessages: Readonly<Record<ServiceFieldError, string>> =
   minutes_invalid: 'กรุณาเลือกระยะเวลา',
   minutes_repeated: 'ระยะเวลาซ้ำกัน',
   price_invalid: 'ราคาต้องเป็นตัวเลข 1–100,000',
+  services_too_many: `มีบริการได้ไม่เกิน ${SERVICE_MAX_COUNT} รายการ`,
 }
 
 export interface ServiceOptionInput {

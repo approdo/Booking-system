@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { MINUTE, testApi } from './helpers'
 
@@ -32,6 +33,32 @@ describe('rate limits in the Worker (AC3, D-004)', () => {
     expect((await api.request('POST', '/api/admin/login', { ip: '203.0.113.50', body: wrong })).status).toBe(401)
     api.advance(10 * MINUTE)
     expect((await api.request('POST', '/api/admin/login', { body: { ...wrong, password: 'nuanplai-demo' } })).status).toBe(200)
+  })
+
+  // Parallel requests (security review): the limit is checked inside the statement that writes, so a
+  // burst of requests sent at the same moment cannot all pass a check made before any of them wrote.
+  it('holds the booking limit when many bookings arrive at the same moment', async () => {
+    const api = testApi()
+    const first = await api.book({ time: '10:00', date: '2026-10-20' })
+    const token = first.body.sandbox.token as string
+    // Fifteen bookings at once, each at a free time: only the 4 that the limit of 5 leaves may pass.
+    const slots = Array.from({ length: 15 }, (_, n) => ({ date: n < 10 ? '2026-10-21' : '2026-10-22', time: `${10 + (n % 10)}:00` }))
+    const statuses = (await Promise.all(slots.map(slot => api.book(slot, { token })))).map(response => response.status)
+    expect(statuses.filter(status => status === 201)).toHaveLength(4)
+    expect(statuses.filter(status => status === 429)).toHaveLength(11)
+    const made = await env.DB.prepare('SELECT COUNT(*) AS count FROM bookings WHERE is_seed = 0').first<{ count: number }>()
+    expect(made?.count).toBe(5)
+  })
+
+  it('holds the wrong-password limit when many tries arrive at the same moment', async () => {
+    const api = testApi()
+    const wrong = { email: 'demo@nuanplai.example', password: 'not-the-password' }
+    const statuses = (await Promise.all(Array.from({ length: 40 }, () =>
+      api.request('POST', '/api/admin/login', { body: wrong })))).map(response => response.status)
+    expect(statuses.filter(status => status === 401)).toHaveLength(10)
+    expect(statuses.filter(status => status === 429)).toHaveLength(30)
+    const remembered = await env.DB.prepare('SELECT COUNT(*) AS count FROM login_failures').first<{ count: number }>()
+    expect(remembered?.count).toBe(10)
   })
 
   it('refuses back office changes above ADMIN_CHANGES_PER_MINUTE per sandbox', async () => {

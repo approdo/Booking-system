@@ -31,7 +31,7 @@ describe('worker/wrangler.toml', () => {
   it('sets the write budget to 60,000 rows and the sandbox life to 24 hours (D-008, D-006)', () => {
     expect(value('D1_WRITE_BUDGET')).toBe('"60000"')
     expect(value('SANDBOX_TTL_HOURS')).toBe('"24"')
-    for (const name of ['BOOKINGS_PER_10_MINUTES', 'ADMIN_CHANGES_PER_MINUTE', 'LOGIN_FAILURES_PER_10_MINUTES', 'SANDBOXES_PER_10_MINUTES_PER_IP']) {
+    for (const name of ['BOOKINGS_PER_10_MINUTES', 'BOOKINGS_PER_SANDBOX', 'ADMIN_CHANGES_PER_MINUTE', 'LOGIN_FAILURES_PER_10_MINUTES', 'SANDBOXES_PER_10_MINUTES_PER_IP']) {
       expect(Number(value(name)?.replaceAll('"', '')), name).toBeGreaterThan(0)
     }
     expect(value('ALLOWED_ORIGINS')).toContain('http://localhost:4176')

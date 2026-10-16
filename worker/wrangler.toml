@@ -33,6 +33,9 @@ SANDBOX_TTL_HOURS = "24"
 # Rate limits (BK-001): bookings per sandbox per 10 minutes, back office changes per sandbox per minute,
 # wrong passwords per IP address per 10 minutes, new sandboxes per IP address (IPv6: per /64) per 10 minutes.
 BOOKINGS_PER_10_MINUTES = "5"
+# New bookings per sandbox in its whole life (24 hours): every read of a sandbox's bookings stays small,
+# so one visitor cannot use up D1's 5,000,000 rows read a day for everyone.
+BOOKINGS_PER_SANDBOX = "30"
 ADMIN_CHANGES_PER_MINUTE = "60"
 LOGIN_FAILURES_PER_10_MINUTES = "10"
 SANDBOXES_PER_10_MINUTES_PER_IP = "5"

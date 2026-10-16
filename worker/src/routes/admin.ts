@@ -10,6 +10,7 @@ import {
   isIsoDate,
   minutesFromTime,
   normalizeBookingCode,
+  SERVICE_MAX_COUNT,
   validateService,
 } from '../../../app/utils/bookingRules'
 import type { DayHoursInput, ServiceOptionInput } from '../../../app/utils/bookingRules'
@@ -94,16 +95,22 @@ export const login: Handler = async (context) => {
 
   const { store, now, settings } = context
   const ipKeyHash = await ipHash(context.ipKey)
+  const windowStart = now - 10 * MINUTE_MS
   const estimate = ROWS_ESTIMATE.loginFailure + ROWS_ESTIMATE.newSandbox + ROWS_ESTIMATE.session
   return store.guardedWrite(estimate, async (write) => {
     const failures = await store.first<{ count: number }>(store.prepare(
       'SELECT COUNT(*) AS count FROM login_failures WHERE ip_key = ?1 AND at > ?2',
-    ).bind(ipKeyHash, now - 10 * MINUTE_MS))
+    ).bind(ipKeyHash, windowStart))
     if ((failures?.count ?? 0) >= settings.loginFailuresPer10Minutes) throw new ApiError('rate_limited')
 
     if (!(await credentialsMatch(email, password))) {
-      await write([store.prepare('INSERT INTO login_failures (ip_key, at) VALUES (?1, ?2)').bind(ipKeyHash, now)])
-      throw new ApiError('invalid_credentials')
+      // The INSERT counts again itself: wrong passwords sent at the same moment all passed the check above,
+      // and D1 runs this statement only after the previous one has written.
+      const [remembered] = await write([store.prepare(
+        `INSERT INTO login_failures (ip_key, at) SELECT ?1, ?2
+         WHERE (SELECT COUNT(*) FROM login_failures WHERE ip_key = ?1 AND at > ?3) < ?4`,
+      ).bind(ipKeyHash, now, windowStart, settings.loginFailuresPer10Minutes)])
+      throw new ApiError(remembered?.meta.changes === 1 ? 'invalid_credentials' : 'rate_limited')
     }
 
     // The visitor's sandbox while it is still valid; a new one otherwise (the old one is gone or going).
@@ -227,7 +234,11 @@ function checkedService(input: { categoryId: unknown, name: unknown, description
   return { ...service, enabled: input.enabled as boolean }
 }
 
-/** POST /api/admin/services with { categoryId, name, description, options, enabled }: a new service. */
+/**
+ * POST /api/admin/services with { categoryId, name, description, options, enabled }: a new service at the
+ * end of the list. A sandbox has at most SERVICE_MAX_COUNT services, so that every read of the shop stays
+ * small (D-008): one more is 400 with { services: 'services_too_many' }.
+ */
 export const createService: Handler = async (context) => {
   const { sandbox } = await requireSession(context)
   const body = await readJsonObject(context.request)
@@ -239,10 +250,17 @@ export const createService: Handler = async (context) => {
     enabled: body.enabled ?? true,
   })
   const id = newServiceId(context.random)
-  await adminChange(context, sandbox, write => write([context.store.prepare(
-    `INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
-     SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, COALESCE(MAX(position), -1) + 1 FROM services WHERE sandbox_id = ?1`,
-  ).bind(sandbox.id, id, input.categoryId, input.name, input.description, JSON.stringify(input.options), input.enabled ? 1 : 0)]))
+  await adminChange(context, sandbox, async (write) => {
+    // Counted inside the INSERT, so requests sent at the same moment cannot pass the limit together.
+    // Services are never deleted (spec section 7): their count is also the next position in the list.
+    const [inserted] = await write([context.store.prepare(
+      `INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
+       SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, service_count
+       FROM (SELECT COUNT(*) AS service_count FROM services WHERE sandbox_id = ?1)
+       WHERE service_count < ?8`,
+    ).bind(sandbox.id, id, input.categoryId, input.name, input.description, JSON.stringify(input.options), input.enabled ? 1 : 0, SERVICE_MAX_COUNT)])
+    if (inserted?.meta.changes !== 1) throw invalidInput({ services: 'services_too_many' })
+  })
   const service: Service = { id, includes: null, ...input }
   return json({ service }, 201)
 }

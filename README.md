@@ -88,7 +88,12 @@ How the demo keeps visitors apart and stays inside the free plan:
   (07:10 in Thailand) deletes every older sandbox with all its rows.
 - **Limits in the Worker**: 5 bookings per sandbox per 10 minutes, 60 back office changes per sandbox per
   minute, 10 wrong passwords per IP address per 10 minutes, 5 new sandboxes per IP address (IPv6: per /64)
-  per 10 minutes. Above a limit: `429 rate_limited`.
+  per 10 minutes. Above a limit: `429 rate_limited`. Each limit is counted inside the SQL statement that
+  writes, so requests sent at the same moment cannot pass it together.
+- **Reads stay small.** D1's free plan also caps rows read (5,000,000 a day for everyone), so a sandbox holds
+  at most 30 new bookings (`BOOKINGS_PER_SANDBOX`, then `429`) and 30 services (`SERVICE_MAX_COUNT`, then
+  `400`). In a sandbox filled to both limits, a read or a refused write reads at most about 110 rows
+  (`worker/test/limits.test.ts`), whatever one visitor wrote before.
 - **A daily write budget.** D1's free plan writes 100,000 rows a day, and every index entry and `DELETE`
   counts. Every write goes through one guard that keeps the day under `D1_WRITE_BUDGET` (60,000) using D1's
   own `rows_written`; above it, writes answer `503 demo_full` ("เดโมเต็มชั่วคราว") until 00:00 UTC while
