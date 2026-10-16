@@ -1,0 +1,108 @@
+# Checks every push and pull request. Publishes `main` to GitHub Pages only when the repository is
+# public, or when the repository variable DEPLOY_PAGES is 'true' (Settings -> Secrets and variables ->
+# Actions -> Variables). In the private template repository neither is the case, so the deploy steps
+# are skipped there, not failed.
+#
+# To publish a client site from a copy of this template:
+#   1. set site.url in app/data/site.ts to https://<owner>.github.io/<repo>/
+#   2. Settings -> Pages -> Source: "GitHub Actions"
+#   3. make the repository public, or set DEPLOY_PAGES (GitHub Pages on a private repository
+#      needs a paid plan)
+# No secrets are needed.
+name: CI and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only by default; only the deploy job may publish to Pages.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Lint, test and build
+    # Both jobs pin an Ubuntu release instead of the moving "latest" label, so the OS
+    # that `playwright install --with-deps` sets up changes only on purpose.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node from .nvmrc
+        uses: actions/setup-node@v7
+        with:
+          # .nvmrc holds only the major version; check-latest takes its newest release,
+          # which meets the minimum in package.json "engines".
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # @nuxt/fonts downloads the font while building. If this step fails with ENOTFOUND or
+      # "fetch failed" for a font host, the host was unreachable: re-run the job.
+      - name: Generate the static site
+        run: npm run generate
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      # Playwright starts `npm run preview`, which serves the output of the generate step
+      # under the path of site.url, so this has to come after it.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      # Stops here while site.url is still the template's example address, so a client site never
+      # goes live with links that lead nowhere. GITHUB_REPOSITORY is set by GitHub Actions.
+      - name: Check site.url before the deploy
+        if: >-
+          github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+          (github.event.repository.visibility == 'public' || vars.DEPLOY_PAGES == 'true')
+        run: npm run check:site-url
+
+      - name: Upload the site for GitHub Pages
+        if: >-
+          github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+          (github.event.repository.visibility == 'public' || vars.DEPLOY_PAGES == 'true')
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: .output/public
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      (github.event.repository.visibility == 'public' || vars.DEPLOY_PAGES == 'true')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    # One deployment at a time, and a running deployment is never cancelled halfway.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

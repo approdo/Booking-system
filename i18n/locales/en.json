@@ -1,0 +1,12 @@
+{
+  "skipLink": "Skip to main content",
+  "header": {
+    "customerSubtitle": "Online booking",
+    "adminSubtitle": "Back office"
+  },
+  "footer": {
+    "forShop": "For the shop:",
+    "adminLink": "open the back office (demo account)",
+    "photoCredit": "Photos from Unsplash · Pexels"
+  }
+}

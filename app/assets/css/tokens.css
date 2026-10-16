@@ -1,0 +1,143 @@
+/*
+ * Design tokens: the only place for colours, fonts, corner radii and shadows.
+ *
+ * Nuanplai design A "warm teak & candlelight", the brand of Business-site: names and values are those of
+ * the design spec, Demo-story/Booking-system/design/spec.md section 1 (= Business-site theme.css), plus
+ * --shadow-bar for the bar at the bottom of the screen.
+ *
+ * Each token becomes a Tailwind utility (bg-surface, text-accent, rounded-card, shadow-card, font-heading, ...)
+ * and a CSS variable (var(--color-accent)). `static` keeps every variable in the output even when no utility
+ * uses it, and `--color-*: initial` removes Tailwind's default palette, so colours outside this file cannot
+ * be used by accident.
+ *
+ * Colours are written as #rrggbb: scripts/generate-brand-images.mjs and the contrast test
+ * (tests/unit/tokens.test.ts) read them from this file.
+ *
+ * Contrast (WCAG 2.x, spec section 1; `npm run test:unit` checks every pair again). Every text colour is at
+ * least 4.5:1 on the backgrounds it is used on; the lowest pairs are:
+ *
+ *   gold-ink    #85601f on surface #f3e8da  4.7:1   (small labels, the focus ring)
+ *   accent      #a4471f on bg      #fbf6ef  5.6:1   (prices, text buttons)
+ *   white       #ffffff on accent  #a4471f  6.0:1   (primary buttons)
+ *   text-muted  #66503f on surface #f3e8da  6.2:1
+ *
+ * Never: accent on accent-soft (4.17:1), or gold as a text colour (3.0:1) - gold is for lines and dots only.
+ */
+@theme static {
+  --color-*: initial;
+
+  /* Backgrounds */
+  --color-bg: #fbf6ef;
+  --color-surface: #f3e8da;
+  --color-card: #fffdf9;
+  --color-white: #ffffff;
+
+  /* Text */
+  --color-text: #2e211a;
+  --color-text-muted: #66503f;
+
+  /* Terracotta: buttons, prices, the chosen answer */
+  --color-accent: #a4471f;
+  --color-accent-hover: #8a3a18;
+  --color-accent-soft: #ecd3b9;
+
+  /* Turmeric gold */
+  --color-gold: #b9852f;
+  --color-gold-ink: #85601f;
+  --color-gold-light: #d6a85a;
+
+  /* Dark teak: footer and dark cards */
+  --color-deep: #3a281d;
+  --color-deeper: #2a1d15;
+  --color-on-deep: #f8eee2;
+  --color-on-deep-muted: #d9c6b1;
+
+  --color-line: #e2d3c1;
+
+  /* Status and form feedback */
+  --color-danger: #b42318;
+  --color-success: #067647;
+
+  /*
+   * Body text in Noto Sans Thai, headings in Noto Serif Thai. @nuxt/fonts finds the web fonts here, serves
+   * them from this site (no request to Google Fonts from the visitor's browser) and adds its size-adjusted
+   * Latin fallbacks right after them. The weights it downloads are set in nuxt.config.ts (`fonts`).
+   * "Thai Fallback: Tahoma" (below) draws the Thai letters until the web font has loaded.
+   */
+  --font-body: "Noto Sans Thai", "Thai Fallback: Tahoma", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Noto Serif Thai", "Thai Fallback: Tahoma", Georgia, serif;
+
+  --radius-card: 18px;
+  --radius-arch: 999px 999px 18px 18px;
+  --radius-button: 999px;
+  --radius-input: 12px;
+
+  --shadow-card: 0 10px 30px rgb(58 40 29 / 0.08);
+  /* The bar stuck to the bottom of the screen (the "next" button, the admin tab bar). */
+  --shadow-bar: 0 -8px 24px rgb(58 40 29 / 0.06);
+
+  /* Widest content box; page-container (main.css) keeps 16px free on each side below it. */
+  --container: 1180px;
+
+  /*
+   * Site-starter names, kept as aliases with the same values (spec section 1), so the starter's scripts and
+   * tests keep working: page = bg, subtle = surface, fg = text, fg-muted = text-muted, primary = accent,
+   * primary-hover = accent-hover, on-primary = white, divider = line, font-sans = font-body,
+   * radius-box = radius-card, radius-control = radius-input, shadow-raised = shadow-card,
+   * container-page = container. tests/unit/tokens.test.ts checks that each one equals its token above.
+   * New code uses the names above only, never these.
+   */
+  --color-page: #fbf6ef;
+  --color-subtle: #f3e8da;
+  --color-fg: #2e211a;
+  --color-fg-muted: #66503f;
+  --color-primary: #a4471f;
+  --color-primary-hover: #8a3a18;
+  --color-on-primary: #ffffff;
+  --color-divider: #e2d3c1;
+  --font-sans: "Noto Sans Thai", "Thai Fallback: Tahoma", ui-sans-serif, system-ui, sans-serif;
+  --radius-box: 18px;
+  --radius-control: 12px;
+  --shadow-raised: 0 10px 30px rgb(58 40 29 / 0.08);
+  --container-page: 1180px;
+}
+
+/*
+ * The Thai text while the web font is still downloading (lesson G-043).
+ *
+ * @nuxt/fonts gives the web fonts size-adjusted fallbacks for Latin system fonts only, and none of them
+ * has Thai letters. Until the web font arrived, the browser would draw Thai in a system font at that
+ * font's own size (Tahoma on Windows, 7-13% wider than Noto Sans Thai), and the page would jump when
+ * the web font came in.
+ *
+ * These faces scale Tahoma to the width of Noto Sans Thai (size-adjust) with the ascent and descent of
+ * Noto Sans Thai, for Thai letters only (unicode-range = the "thai" subset). --font-body and --font-heading
+ * list them after the web font, so once the web font has loaded they are not used and the finished page
+ * does not change. The browser uses the 700 face for weight 600.
+ *
+ * The numbers were measured for Noto Sans Thai: 97% for regular text and 91.09% for bold. The serif
+ * headings (Noto Serif Thai) use the same faces without new measurements, as on Business-site.
+ * ascent-override = 1.061 / size-adjust, descent-override = 0.45 / size-adjust (Noto Sans Thai: ascent
+ * 1061, descent 450, 1000 units per em).
+ */
+@font-face {
+  font-family: "Thai Fallback: Tahoma";
+  src: local("Tahoma");
+  font-weight: 400;
+  size-adjust: 97%;
+  ascent-override: 109.38%;
+  descent-override: 46.39%;
+  line-gap-override: 0%;
+  unicode-range: U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+
+@font-face {
+  font-family: "Thai Fallback: Tahoma";
+  src: local("Tahoma Bold"), local("Tahoma-Bold");
+  font-weight: 700;
+  size-adjust: 91.09%;
+  ascent-override: 116.48%;
+  descent-override: 49.4%;
+  line-gap-override: 0%;
+  unicode-range: U+0E01-0E5B, U+200C-200D, U+25CC;
+}

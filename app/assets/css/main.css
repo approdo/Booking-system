@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/*
+ * Width of the page content: the full width less 16px on each side, and at most
+ * --container (1180px) wide, centred on wide screens (spec section 1).
+ */
+@utility page-container {
+  width: min(100% - 32px, var(--container));
+  margin-inline: auto;
+}
+
+/*
+ * Light tints mixed from theme colours, so they follow a change of theme (spec section 1):
+ * the background of a form field or a box with an error, and the circle behind a success icon.
+ */
+@utility bg-danger-tint {
+  background-color: color-mix(in srgb, var(--color-danger) 5%, var(--color-white));
+}
+
+@utility bg-success-tint {
+  background-color: color-mix(in srgb, var(--color-success) 12%, var(--color-white));
+}
+
+@layer base {
+  /* The page behind an open dialog does not scroll. */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  /* Visible keyboard focus on everything that can be focused: gold-ink on light backgrounds (spec section 1). */
+  :focus-visible {
+    outline: 3px solid var(--color-gold-ink);
+    outline-offset: 3px;
+  }
+
+  /* On the dark backgrounds (deep, deeper) the focus ring is light gold. */
+  .on-dark :focus-visible {
+    outline-color: var(--color-gold-light);
+  }
+}

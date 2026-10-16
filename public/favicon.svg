@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Nuanplai icon. Made by scripts/generate-brand-images.mjs: change the script or the tokens, not this file. -->
+  <rect width="32" height="32" rx="7" fill="#a4471f"/>
+  <path d="M7 9h18l-2 5H9z" fill="#ffffff"/>
+  <path d="M9 16h14v8H9z" fill="#ffffff"/>
+  <path d="M14 19h4v5h-4z" fill="#a4471f"/>
+</svg>

@@ -1,0 +1,12 @@
+{
+  "skipLink": "ข้ามไปเนื้อหาหลัก",
+  "header": {
+    "customerSubtitle": "จองคิวออนไลน์",
+    "adminSubtitle": "หลังบ้าน"
+  },
+  "footer": {
+    "forShop": "สำหรับร้าน:",
+    "adminLink": "เข้าหลังบ้าน (บัญชีทดลอง)",
+    "photoCredit": "รูปภาพจาก Unsplash · Pexels"
+  }
+}
