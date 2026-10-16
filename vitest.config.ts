@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   plugins: [vue()],
   test: {
+    // The Worker's own tests (worker/test) run inside the Workers runtime: `npm run test:worker`.
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
   },

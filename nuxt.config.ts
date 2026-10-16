@@ -29,6 +29,13 @@ export default defineNuxtConfig({
     },
   },
   css: ['~/assets/css/main.css'],
+  runtimeConfig: {
+    public: {
+      // The booking API's address (app/composables/useBookingRepository.ts). Public on purpose: the
+      // browser calls it. NUXT_PUBLIC_API_BASE overrides it when generating.
+      apiBase: site.apiUrl,
+    },
+  },
   experimental: {
     // Static pages without data fetching: skip the separate _payload.json request.
     payloadExtraction: false,

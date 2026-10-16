@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { serviceCategories } from '~/data/services'
+import { seed } from '~/data/seed'
 
 // Step 1 of the booking, "choose a service" (spec section 6). The heading, the categories and their
 // photos are static, so they are in the generated HTML before any request to the back end (spec D8).
-// The services are listed from the starting data; choosing one is added with the booking flow (BK-006).
+// The services are listed from the starting data (app/data/seed.ts, the same file the back end copies into
+// every sandbox); choosing one is added with the booking flow (BK-006).
 useSeoMeta({ title: pageTitle('customer', 'เลือกบริการ') })
 
 const imageUrl = useImageUrl()
@@ -19,7 +20,7 @@ const imageUrl = useImageUrl()
     </p>
 
     <section
-      v-for="(category, index) in serviceCategories"
+      v-for="(category, index) in seed.serviceCategories"
       :key="category.id"
       class="mt-6"
       :aria-labelledby="`category-${category.id}`"

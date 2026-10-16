@@ -24,6 +24,11 @@ export const site: Site = {
   // workflow) stops a deploy until it is the real https://<owner>.github.io/Booking-system/ (BK-011).
   url: 'https://demo.example/Booking-system/',
 
+  // The booking API (worker/, D-006): public, not a secret. Here the local `wrangler dev` of the Worker
+  // (README: "Back end on your machine"); BK-011 sets https://booking-system-api.<subdomain>.workers.dev.
+  // NUXT_PUBLIC_API_BASE overrides it for one build, e.g. a local preview after the real URL is in.
+  apiUrl: 'http://localhost:8787',
+
   // Switches. Thai only (N3); the footer always says this is a demo (N9).
   english: false,
   demoNotice: true,

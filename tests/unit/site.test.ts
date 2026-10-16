@@ -33,6 +33,12 @@ describe('site.ts', () => {
     for (const weight of site.fontWeights) expect([100, 200, 300, 400, 500, 600, 700, 800, 900]).toContain(weight)
   })
 
+  it('has the booking API address: http(s), with no path and no trailing slash', () => {
+    const url = new URL(site.apiUrl)
+    expect(['http:', 'https:']).toContain(url.protocol)
+    expect(site.apiUrl).toBe(url.origin)
+  })
+
   it('has a phone number of digits and dashes, and an e-mail address', () => {
     expect(site.contact.phone).toMatch(/^\+?[0-9][0-9 -]*[0-9]$/)
     expect(site.contact.email).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)

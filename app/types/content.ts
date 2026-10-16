@@ -46,6 +46,8 @@ export interface Site {
    * ('/Booking-system/' here; '/' for a site at the root of its own domain).
    */
   url: string
+  /** Address of the booking API (worker/), without a trailing '/'. Public: the browser calls it. */
+  apiUrl: string
   /** true: Thai pages plus English pages under /en/. false: Thai only (no /en/). */
   english: boolean
   /** true: the footer shows `demoNoticeText`, the line that says this is a demo website. */
@@ -121,8 +123,31 @@ export interface Therapist {
 /** Opening hours of one day of the week. Times are 'HH:MM' in Thai time (Asia/Bangkok), on the half hour. */
 export interface DayHours {
   weekday: Weekday
+  /** true: the shop is closed all day on this day of the week. Leave it out for a day the shop is open. */
+  closed?: boolean
   open: string
   close: string
   /** The latest start time of a booking. */
   lastBooking: string
+}
+
+/**
+ * One of the example bookings every visitor starts with (spec section 10). The day is counted from
+ * today in Thai time, so the examples always fall on today and tomorrow.
+ */
+export interface SampleBooking {
+  /** 0 = today, 1 = tomorrow. */
+  dayOffset: number
+  /** 'HH:MM', Thai time. The end is the start plus the length of the service option. */
+  start: string
+  customerName: string
+  /** A reserved number (D-010), as people write it; it is stored as digits only. */
+  phone: string
+  serviceId: string
+  minutes: number
+  /** null: no preference ("ไม่ระบุ"). */
+  therapistId: string | null
+  status: 'pending' | 'confirmed' | 'done' | 'cancelled'
+  /** A booking number in the format of spec section 4. */
+  code: string
 }

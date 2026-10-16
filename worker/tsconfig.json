@@ -1,0 +1,23 @@
+{
+  // The Worker, its tests and the plain TypeScript it shares with the site (app/data, app/utils/bookingRules.ts).
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts",
+    "../app/data/*.ts",
+    "../app/types/*.ts",
+    "../app/utils/bookingRules.ts"
+  ]
+}
