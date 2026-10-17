@@ -81,29 +81,45 @@ function seedRows(today: string) {
   return { services, therapists, hours, closedDates: [...seed.closedDates], bookings }
 }
 
-/** Statements that replace the 'seed' sandbox with the starting data dated from `today`. */
+/**
+ * Statements that replace the 'seed' sandbox with the starting data dated from `today`, for one batch.
+ *
+ * Each statement writes only while this version of the starting data is not recorded in meta, and the
+ * last one records it. D1 runs the batches of requests sent at the same moment one after another, so when
+ * the first requests of a day all find the data missing, the first batch writes it and every later batch
+ * writes nothing (D-011 M2): the Worker's own writes stay one installation a day.
+ */
 function installStatements(store: Store, today: string, now: number): D1PreparedStatement[] {
   const rows = seedRows(today)
+  const version = `${SEED_VERSION}:${today}`
   const field = (name: string) => `json_extract(value, '$.${name}')`
+  /** The condition of every statement; `parameter` is where the statement binds `version`. */
+  const notInstalled = (parameter: string) =>
+    `NOT EXISTS (SELECT 1 FROM meta WHERE key = '${SEED_META_KEY}' AND value = ${parameter})`
   return [
     ...['services', 'therapists', 'shop_settings', 'bookings'].map(table =>
-      store.prepare(`DELETE FROM ${table} WHERE sandbox_id = ?1`).bind(SEED_SANDBOX)),
+      store.prepare(`DELETE FROM ${table} WHERE sandbox_id = ?1 AND ${notInstalled('?2')}`).bind(SEED_SANDBOX, version)),
     // One statement per table, the rows passed as one JSON parameter (D1 allows at most 100 per query).
     store.prepare(`INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
       SELECT ?1, ${field('id')}, ${field('categoryId')}, ${field('name')}, ${field('description')}, ${field('includes')},
-        ${field('options')}, 1, key FROM json_each(?2)`).bind(SEED_SANDBOX, JSON.stringify(rows.services)),
+        ${field('options')}, 1, key FROM json_each(?2) WHERE ${notInstalled('?3')}`)
+      .bind(SEED_SANDBOX, JSON.stringify(rows.services), version),
     store.prepare(`INSERT INTO therapists (sandbox_id, id, name, initial, role, years, specialty, work_days, leave_dates, position)
       SELECT ?1, ${field('id')}, ${field('name')}, ${field('initial')}, ${field('role')}, ${field('years')},
-        ${field('specialty')}, ${field('workDays')}, '[]', key FROM json_each(?2)`).bind(SEED_SANDBOX, JSON.stringify(rows.therapists)),
-    store.prepare('INSERT INTO shop_settings (sandbox_id, hours, closed_dates) VALUES (?1, ?2, ?3)')
-      .bind(SEED_SANDBOX, JSON.stringify(rows.hours), JSON.stringify(rows.closedDates)),
+        ${field('specialty')}, ${field('workDays')}, '[]', key FROM json_each(?2) WHERE ${notInstalled('?3')}`)
+      .bind(SEED_SANDBOX, JSON.stringify(rows.therapists), version),
+    store.prepare(`INSERT INTO shop_settings (sandbox_id, hours, closed_dates) SELECT ?1, ?2, ?3 WHERE ${notInstalled('?4')}`)
+      .bind(SEED_SANDBOX, JSON.stringify(rows.hours), JSON.stringify(rows.closedDates), version),
     store.prepare(`INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date,
         start_min, end_min, customer_name, phone, status, is_seed, created_at)
       SELECT ?1, ${field('code')}, ${field('serviceId')}, ${field('serviceName')}, ${field('minutes')}, ${field('price')},
         ${field('therapistId')}, ${field('date')}, ${field('start')}, ${field('end')}, ${field('customerName')},
-        ${field('phone')}, ${field('status')}, 1, ?3 FROM json_each(?2)`).bind(SEED_SANDBOX, JSON.stringify(rows.bookings), now),
-    store.prepare('INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
-      .bind(SEED_META_KEY, `${SEED_VERSION}:${today}`),
+        ${field('phone')}, ${field('status')}, 1, ?3 FROM json_each(?2) WHERE ${notInstalled('?4')}`)
+      .bind(SEED_SANDBOX, JSON.stringify(rows.bookings), now, version),
+    // Last: records the version, which turns every statement above into "write nothing".
+    store.prepare(`INSERT INTO meta (key, value) SELECT ?1, ?2 WHERE ${notInstalled('?2')}
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
+      .bind(SEED_META_KEY, version),
   ]
 }
 

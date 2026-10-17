@@ -113,7 +113,7 @@ including the two daily counts each write updates:
 | A visitor's sandbox with its first booking | 36 |
 | Deleting that sandbox in the daily purge | 28 |
 | **One visitor, from first booking to purge** | **64** |
-| Today's starting data, written once a day for everyone | 32 |
+| Today's starting data, written once a day for everyone (once, even when the day's first requests arrive together) | 32 |
 
 So the 60,000-row budget holds about 60,000 ÷ 64 ≈ **930 visitors a day**; each further booking costs 4
 rows, signing in 5 and each back office change 4.
