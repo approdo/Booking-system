@@ -89,9 +89,10 @@ How the demo keeps visitors apart and stays inside the free plan:
 - **24 hours.** After 24 hours the API answers `410 sandbox_expired`, and the Cron Trigger at 00:10 UTC
   (07:10 in Thailand) deletes every older sandbox with all its rows.
 - **Limits in the Worker**: 5 bookings per sandbox per 10 minutes, 60 back office changes per sandbox per
-  minute, 10 wrong passwords per IP address per 10 minutes, 5 new sandboxes per IP address (IPv6: per /64)
-  per 10 minutes. Above a limit: `429 rate_limited`. Each limit is counted inside the SQL statement that
-  writes, so requests sent at the same moment cannot pass it together.
+  minute (signing in to an existing sandbox and signing out count as changes), 5 back office sessions per
+  sandbox (signing in once more ends the oldest), 10 wrong passwords per IP address per 10 minutes, 5 new
+  sandboxes per IP address (IPv6: per /64) per 10 minutes. Above a limit: `429 rate_limited`. Each limit is
+  counted inside the SQL statement that writes, so requests sent at the same moment cannot pass it together.
 - **Reads stay small.** D1's free plan also caps rows read (5,000,000 a day for everyone), so a sandbox holds
   at most 30 new bookings (`BOOKINGS_PER_SANDBOX`, then `429`) and 30 services (`SERVICE_MAX_COUNT`, then
   `400`). In a sandbox filled to both limits, a read or a refused write reads at most about 110 rows
@@ -99,20 +100,23 @@ How the demo keeps visitors apart and stays inside the free plan:
 - **A daily write budget.** D1's free plan writes 100,000 rows a day, and every index entry and `DELETE`
   counts. Every write goes through one guard that keeps the day under `D1_WRITE_BUDGET` (60,000) using D1's
   own `rows_written`; above it, writes answer `503 demo_full` ("เดโมเต็มชั่วคราว") until 00:00 UTC while
-  reading keeps working. The purge is counted but never refused. A failed D1 call is tried once more, then
-  answers `503 backend_unavailable`.
+  reading keeps working. One IP address (IPv6: one /64) may write at most 5% of it a day
+  (`D1_WRITE_BUDGET_PER_IP_PERCENT`, 3,000 rows), all its sandboxes together; above that, its writes answer
+  `429 rate_limited` until 00:00 UTC, so one address cannot fill the demo for everyone. The purge is counted
+  but never refused. A failed D1 call is tried once more, then answers `503 backend_unavailable`.
 
-Rows written, measured with the local D1 (`npx vitest run test/budget.test.ts --silent=false` in `worker/`):
+Rows written, measured with the local D1 (`npx vitest run test/budget.test.ts --silent=false` in `worker/`),
+including the two daily counts each write updates:
 
 | What | `rows_written` |
 |---|---|
-| A visitor's sandbox with its first booking | 35 |
-| Deleting that sandbox in the daily purge | 27 |
-| **One visitor, from first booking to purge** | **62** |
+| A visitor's sandbox with its first booking | 36 |
+| Deleting that sandbox in the daily purge | 28 |
+| **One visitor, from first booking to purge** | **64** |
 | Today's starting data, written once a day for everyone | 32 |
 
-So the 60,000-row budget holds about 60,000 ÷ 62 ≈ **960 visitors a day**; each further booking costs 3
-rows and each back office change 3.
+So the 60,000-row budget holds about 60,000 ÷ 64 ≈ **930 visitors a day**; each further booking costs 4
+rows, signing in 5 and each back office change 4.
 
 Demo account of the back office: `demo@nuanplai.example` / `nuanplai-demo`. It is shown on the login page
 on purpose: what anyone changes stays in their own sandbox and is deleted within 24 hours.

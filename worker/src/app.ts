@@ -74,16 +74,21 @@ export function createApp(options: AppOptions = {}) {
 
       const url = new URL(request.url)
       const time = now()
+      const callerIpKey = ipKey(request.headers.get('CF-Connecting-IP'))
       const context: Context = {
         request,
         url,
         env,
         settings,
-        store: new Store(env.DB, settings.writeBudget, time),
+        store: new Store(env.DB, {
+          writeBudget: settings.writeBudget,
+          ip: { key: callerIpKey, budget: settings.writeBudgetPerIp },
+          now: time,
+        }),
         now: time,
         today: bangkokDate(time),
         nowMinutes: bangkokMinutes(time),
-        ipKey: ipKey(request.headers.get('CF-Connecting-IP')),
+        ipKey: callerIpKey,
         random,
         seedCache,
       }
@@ -110,7 +115,7 @@ export function createApp(options: AppOptions = {}) {
     async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
       const settings = readSettings(env)
       const time = now()
-      await purge(new Store(env.DB, settings.writeBudget, time), time, settings.sandboxTtlMs)
+      await purge(new Store(env.DB, { writeBudget: settings.writeBudget, now: time }), time, settings.sandboxTtlMs)
     },
   }
 }

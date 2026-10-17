@@ -109,14 +109,17 @@ export async function sandboxRowCounts(sandboxId: string): Promise<SandboxRowCou
 }
 
 /**
- * The local D1 with a meter: adds up the `rows_read` that D1 reports for every query the Worker runs. Pass
- * `db` as the DB binding (`testApi({ env: { DB: reads.db } })`) to check how much one request reads: D1's
- * free plan reads 5,000,000 rows a day for everyone (BK-001), so no request may read more and more rows.
+ * The local D1 with a meter: adds up the `rows_read` and `rows_written` that D1 reports for every query the
+ * Worker runs. Pass `db` as the DB binding (`testApi({ env: { DB: rows.db } })`) to check how much requests
+ * read and write: D1's free plan reads 5,000,000 rows and writes 100,000 a day for everyone (BK-001), so no
+ * request may read more and more rows, and no one visitor may write a large part of the day's rows.
  */
-export function rowsReadCounter(database: D1Database = env.DB) {
-  let total = 0
+export function rowsCounter(database: D1Database = env.DB) {
+  let read = 0
+  let written = 0
   const count = <T extends D1Result>(result: T): T => {
-    total += result.meta.rows_read
+    read += result.meta.rows_read
+    written += result.meta.rows_written
     return result
   }
   // batch() needs D1's own statements, so every wrapper remembers the statement it wraps.
@@ -127,7 +130,7 @@ export function rowsReadCounter(database: D1Database = env.DB) {
       bind: (...values: unknown[]) => meter(statement.bind(...values)),
       all: async () => count(await statement.all()),
       run: async () => count(await statement.run()),
-      // Through all(), which reports rows_read; first() does not.
+      // Through all(), which reports rows_read and rows_written; first() does not.
       first: async (column?: string) => {
         const row = (count(await statement.all<Record<string, unknown>>()).results[0]) ?? null
         return column === undefined || row === null ? row : row[column]
@@ -146,14 +149,22 @@ export function rowsReadCounter(database: D1Database = env.DB) {
   return {
     db: db as unknown as D1Database,
     /** Rows read since the counter was made or last reset. */
-    get total() {
-      return total
+    get read() {
+      return read
+    },
+    /** Rows written (index entries included) since the counter was made or last reset. */
+    get written() {
+      return written
     },
     reset() {
-      total = 0
+      read = 0
+      written = 0
     },
   }
 }
+
+/** The demo account of the login page (app/data/demoAccount.ts). */
+export const DEMO_LOGIN = { email: 'demo@nuanplai.example', password: 'nuanplai-demo' } as const
 
 /** Rows written today (UTC) according to the write budget. */
 export async function budgetUsed(day: string): Promise<number> {

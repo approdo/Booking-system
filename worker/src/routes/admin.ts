@@ -54,18 +54,24 @@ async function requireSession(context: Context): Promise<{ sessionId: string, sa
 }
 
 /**
- * A back office change: inside the write budget, and at most ADMIN_CHANGES_PER_MINUTE per sandbox,
- * counted on the sandbox row itself (no counter table). SQLite computes every SET from the old values.
+ * Counts one back office change of a sandbox, or answers 429 rate_limited: at most ADMIN_CHANGES_PER_MINUTE
+ * per sandbox, counted on the sandbox row itself (no counter table). SQLite computes every SET from the old
+ * values, and D1 runs one statement at a time, so requests sent at the same moment cannot pass it together.
  */
-function adminChange<T>(context: Context, sandbox: Sandbox, work: (write: Write) => Promise<T>): Promise<T> {
+async function countChange(context: Context, write: Write, sandboxId: string): Promise<void> {
   const { store, now, settings } = context
-  return store.guardedWrite(ROWS_ESTIMATE.adminChange, async (write) => {
-    const [count] = await write([store.prepare(`UPDATE sandboxes SET
-        change_count = CASE WHEN change_window_start > ?2 THEN change_count + 1 ELSE 1 END,
-        change_window_start = CASE WHEN change_window_start > ?2 THEN change_window_start ELSE ?3 END
-      WHERE id = ?1 AND NOT (change_window_start > ?2 AND change_count >= ?4)`)
-      .bind(sandbox.id, now - MINUTE_MS, now, settings.adminChangesPerMinute)])
-    if (count?.meta.changes !== 1) throw new ApiError('rate_limited')
+  const [count] = await write([store.prepare(`UPDATE sandboxes SET
+      change_count = CASE WHEN change_window_start > ?2 THEN change_count + 1 ELSE 1 END,
+      change_window_start = CASE WHEN change_window_start > ?2 THEN change_window_start ELSE ?3 END
+    WHERE id = ?1 AND NOT (change_window_start > ?2 AND change_count >= ?4)`)
+    .bind(sandboxId, now - MINUTE_MS, now, settings.adminChangesPerMinute)])
+  if (count?.meta.changes !== 1) throw new ApiError('rate_limited')
+}
+
+/** A back office change: inside the write budgets, and counted by countChange(). */
+function adminChange<T>(context: Context, sandbox: Sandbox, work: (write: Write) => Promise<T>): Promise<T> {
+  return context.store.guardedWrite(ROWS_ESTIMATE.adminChange, async (write) => {
+    await countChange(context, write, sandbox.id)
     return work(write)
   })
 }
@@ -83,6 +89,9 @@ async function credentialsMatch(email: string, password: string): Promise<boolea
  * booking pages, if any, as `Authorization: Bearer`), or creates one. Answers { session: { token },
  * sandbox: { token (only when new), expiresAt } }. Wrong password: 401 invalid_credentials; after
  * LOGIN_FAILURES_PER_10_MINUTES wrong passwords from one IP address in 10 minutes: 429 for every try.
+ *
+ * Signing in to an existing sandbox counts as a back office change (ADMIN_CHANGES_PER_MINUTE), and a
+ * sandbox keeps at most SESSIONS_PER_SANDBOX sessions: signing in once more ends the oldest (D-011 M1).
  */
 export const login: Handler = async (context) => {
   const body = await readJsonObject(context.request)
@@ -125,6 +134,8 @@ export const login: Handler = async (context) => {
     let created: NewSandbox | null = null
     let sandboxId: string
     if (sandbox) {
+      // Signing in again and again would add sessions without end: it counts as a back office change.
+      await countChange(context, write, sandbox.id)
       sandboxId = sandbox.id
     }
     else {
@@ -137,6 +148,13 @@ export const login: Handler = async (context) => {
     const sessionToken = newToken(context.random)
     const results = await write([
       ...(created?.statements ?? []),
+      // Room for the new session: the sandbox keeps only its newest SESSIONS_PER_SANDBOX - 1 others. In the
+      // same batch as the INSERT, so sign-ins sent at the same moment cannot add more together.
+      ...(created
+        ? []
+        : [store.prepare(`DELETE FROM sessions WHERE sandbox_id = ?1 AND id NOT IN (
+            SELECT id FROM sessions WHERE sandbox_id = ?1 ORDER BY created_at DESC LIMIT ?2)`)
+            .bind(sandboxId, settings.sessionsPerSandbox - 1)]),
       store.prepare('INSERT INTO sessions (id, sandbox_id, created_at) SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM sandboxes WHERE id = ?2)')
         .bind(await sha256(sessionToken), sandboxId, now),
     ])
@@ -150,10 +168,13 @@ export const login: Handler = async (context) => {
   })
 }
 
-/** POST /api/admin/logout: ends the session; the sandbox and its data stay (spec section 7). */
+/**
+ * POST /api/admin/logout: ends the session; the sandbox and its data stay (spec section 7). Counts as a
+ * back office change, like signing in.
+ */
 export const logout: Handler = async (context) => {
-  const { sessionId } = await requireSession(context)
-  await context.store.guardedWrite(ROWS_ESTIMATE.session, write =>
+  const { sessionId, sandbox } = await requireSession(context)
+  await adminChange(context, sandbox, write =>
     write([context.store.prepare('DELETE FROM sessions WHERE id = ?1').bind(sessionId)]))
   return noContent()
 }

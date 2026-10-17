@@ -28,15 +28,23 @@ crons = ["10 0 * * *"]
 # Rows the API may write to D1 per UTC day: 60% of the free plan's 100,000. Above it, writes answer
 # 503 demo_full and reads keep working until 00:00 UTC.
 D1_WRITE_BUDGET = "60000"
+# The share of that budget one IP address (IPv6: one /64) may write per UTC day, all its sandboxes
+# together: 5% = 3,000 rows. A visitor who books and makes ten back office changes writes about 80, so
+# dozens of visitors behind one shared address still fit. Above it, that address's writes answer
+# 429 rate_limited until 00:00 UTC (D-011).
+D1_WRITE_BUDGET_PER_IP_PERCENT = "5"
 # A sandbox (one visitor's copy of the data) is deleted, or treated as deleted, after this many hours.
 SANDBOX_TTL_HOURS = "24"
-# Rate limits (BK-001): bookings per sandbox per 10 minutes, back office changes per sandbox per minute,
-# wrong passwords per IP address per 10 minutes, new sandboxes per IP address (IPv6: per /64) per 10 minutes.
+# Rate limits (BK-001): bookings per sandbox per 10 minutes, back office changes per sandbox per minute
+# (signing in to an existing sandbox and signing out count as changes), wrong passwords per IP address per
+# 10 minutes, new sandboxes per IP address (IPv6: per /64) per 10 minutes.
 BOOKINGS_PER_10_MINUTES = "5"
 # New bookings per sandbox in its whole life (24 hours): every read of a sandbox's bookings stays small,
 # so one visitor cannot use up D1's 5,000,000 rows read a day for everyone.
 BOOKINGS_PER_SANDBOX = "30"
 ADMIN_CHANGES_PER_MINUTE = "60"
+# Back office sessions per sandbox: signing in once more ends the oldest one (D-011).
+SESSIONS_PER_SANDBOX = "5"
 LOGIN_FAILURES_PER_10_MINUTES = "10"
 SANDBOXES_PER_10_MINUTES_PER_IP = "5"
 # Origins of the pages allowed to call the API (CORS), separated by commas: the local preview here;

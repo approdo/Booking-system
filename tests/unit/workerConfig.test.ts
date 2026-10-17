@@ -34,6 +34,9 @@ describe('worker/wrangler.toml', () => {
     for (const name of ['BOOKINGS_PER_10_MINUTES', 'BOOKINGS_PER_SANDBOX', 'ADMIN_CHANGES_PER_MINUTE', 'LOGIN_FAILURES_PER_10_MINUTES', 'SANDBOXES_PER_10_MINUTES_PER_IP']) {
       expect(Number(value(name)?.replaceAll('"', '')), name).toBeGreaterThan(0)
     }
+    // D-011 M1: one IP address writes at most 5% of the budget a day; a sandbox keeps at most 5 sessions.
+    expect(value('D1_WRITE_BUDGET_PER_IP_PERCENT')).toBe('"5"')
+    expect(value('SESSIONS_PER_SANDBOX')).toBe('"5"')
     expect(value('ALLOWED_ORIGINS')).toContain('http://localhost:4176')
   })
 })

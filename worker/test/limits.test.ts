@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { addDays, SERVICE_MAX_COUNT } from '../../app/utils/bookingRules'
-import { rowsReadCounter, testApi, TODAY } from './helpers'
+import { rowsCounter, testApi, TODAY } from './helpers'
 
 /**
  * Nothing one visitor does may make the API read more and more rows (security review of BK-005). D1's free
@@ -19,7 +19,7 @@ const MAX_ROWS_READ = 150
 
 describe('reads stay small however much one visitor writes (D-008)', () => {
   it(`refuses a service above SERVICE_MAX_COUNT (${SERVICE_MAX_COUNT}), and reading the shop stops growing`, async () => {
-    const reads = rowsReadCounter()
+    const reads = rowsCounter()
     const api = testApi({ env: { DB: reads.db, ADMIN_CHANGES_PER_MINUTE: '1000' } })
     const { session, sandbox } = await api.login()
     const addService = (n: number) => api.request('POST', '/api/admin/services', {
@@ -36,7 +36,7 @@ describe('reads stay small however much one visitor writes (D-008)', () => {
     const readShop = async () => {
       reads.reset()
       expect((await api.request('GET', '/api/shop', { token: sandbox })).status).toBe(200)
-      return reads.total
+      return reads.read
     }
     const readsWhenFull = await readShop()
 
@@ -46,7 +46,7 @@ describe('reads stay small however much one visitor writes (D-008)', () => {
         status: 400,
         body: { error: 'invalid_input', fields: { services: 'services_too_many' } },
       })
-      expect(reads.total, `rows read to refuse service ${n + 1}`).toBeLessThanOrEqual(MAX_ROWS_READ)
+      expect(reads.read, `rows read to refuse service ${n + 1}`).toBeLessThanOrEqual(MAX_ROWS_READ)
     }
 
     // The new services follow the starting ones, in the order they were added.
@@ -58,7 +58,7 @@ describe('reads stay small however much one visitor writes (D-008)', () => {
   })
 
   it('refuses a booking above BOOKINGS_PER_SANDBOX, and the back office list stops growing', async () => {
-    const reads = rowsReadCounter()
+    const reads = rowsCounter()
     // The 10-minute limit is lifted so that this test reaches the limit per sandbox.
     const api = testApi({ env: { DB: reads.db, BOOKINGS_PER_10_MINUTES: '1000' } })
     const limit = Number(env.BOOKINGS_PER_SANDBOX)
@@ -77,14 +77,14 @@ describe('reads stay small however much one visitor writes (D-008)', () => {
     reads.reset()
     const list = await api.request('GET', '/api/admin/bookings', { token: session })
     expect((list.body.bookings as { isNew: boolean }[]).filter(booking => booking.isNew)).toHaveLength(limit)
-    expect(reads.total, 'rows read by GET /api/admin/bookings').toBeLessThanOrEqual(MAX_ROWS_READ)
+    expect(reads.read, 'rows read by GET /api/admin/bookings').toBeLessThanOrEqual(MAX_ROWS_READ)
 
     reads.reset()
     expect((await api.request('GET', '/api/availability?minutes=60&therapist=any', { token })).status).toBe(200)
-    expect(reads.total, 'rows read by GET /api/availability').toBeLessThanOrEqual(MAX_ROWS_READ)
+    expect(reads.read, 'rows read by GET /api/availability').toBeLessThanOrEqual(MAX_ROWS_READ)
 
     reads.reset()
     expect((await api.book(slot(limit + 1), { token })).status).toBe(429)
-    expect(reads.total, 'rows read to refuse a booking').toBeLessThanOrEqual(MAX_ROWS_READ)
+    expect(reads.read, 'rows read to refuse a booking').toBeLessThanOrEqual(MAX_ROWS_READ)
   })
 })

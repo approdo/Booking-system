@@ -2,8 +2,9 @@
 // with an empty local D1 under .wrangler/e2e, so every run starts from the same data. No Cloudflare account
 // and no network are needed; nothing here touches the Cloudflare account of the real deployment.
 //
-// The tests book from many fresh browsers (one sandbox each), all from 127.0.0.1, so the limit of new
-// sandboxes per IP address is raised for this server only. Every other setting is the one in wrangler.toml.
+// The tests book from many fresh browsers (one sandbox each), all from 127.0.0.1, so the two limits per IP
+// address are raised for this server only: new sandboxes per 10 minutes, and the address's share of the
+// daily write budget. Every other setting is the one in wrangler.toml.
 import { spawn, spawnSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +28,7 @@ const server = spawn(process.execPath, [
   '--port', '8787',
   '--persist-to', stateDir,
   '--var', 'SANDBOXES_PER_10_MINUTES_PER_IP:1000',
+  '--var', 'D1_WRITE_BUDGET_PER_IP_PERCENT:100',
 ], { cwd: workerDir, env, stdio: 'inherit' })
 
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.kill(signal))

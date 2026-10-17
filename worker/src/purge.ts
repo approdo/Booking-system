@@ -7,10 +7,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * The daily purge (Cron Trigger "10 0 * * *", 07:10 Thai time — D-006): deletes every sandbox older than
- * the time to live with all its rows, the wrong-password records older than a day and the write counts
- * older than a week, then records last_purge_at.
+ * the time to live with all its rows, the wrong-password records older than a day, the write counts per
+ * IP address of past days and the daily write counts older than a week, then records last_purge_at.
  *
- * One batch of nine statements, each deleting a whole set of rows (the free plan allows 50 queries per
+ * One batch of ten statements, each deleting a whole set of rows (the free plan allows 50 queries per
  * run; there is no loop per sandbox). Rows of a sandbox that is not alive any more are deleted whatever
  * the reason, so running it twice, or after a missed day, is safe. Its writes are counted in the daily
  * budget but never refused (D-008 ก).
@@ -25,6 +25,7 @@ export async function purge(store: Store, now: number, ttlMs: number): Promise<{
     store.prepare(`DELETE FROM sessions WHERE sandbox_id NOT IN (${liveSandboxes})`).bind(cutoff),
     store.prepare('DELETE FROM sandboxes WHERE created_at <= ?1').bind(cutoff),
     store.prepare('DELETE FROM login_failures WHERE at <= ?1').bind(now - DAY_MS),
+    store.prepare('DELETE FROM ip_write_budget WHERE day < ?1').bind(utcDate(now)),
     store.prepare('DELETE FROM write_budget WHERE day < ?1').bind(addDays(utcDate(now), -7)),
     store.prepare('INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
       .bind('last_purge_at', new Date(now).toISOString()),

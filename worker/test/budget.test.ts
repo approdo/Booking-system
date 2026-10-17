@@ -3,14 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { ROWS_ESTIMATE } from '../src/estimates'
 import { BUDGET_UPDATE_ROWS, Store } from '../src/store'
 import { utcDate } from '../src/time'
+import { ipHash, ipKey } from '../src/ids'
 import { budgetUsed, HOUR, SATURDAY_9AM, tableCounts, testApi } from './helpers'
 
 const DAY = utcDate(SATURDAY_9AM)
 
 describe('the daily D1 write budget (AC4, D-008 ก)', () => {
   it('refuses writes with 503 demo_full once the budget is reached, changes nothing, and keeps reads working', async () => {
-    // A low budget (AC4: 300 rows); the per-minute limit of back office changes is lifted so the budget is hit first.
-    const api = testApi({ env: { D1_WRITE_BUDGET: '300', ADMIN_CHANGES_PER_MINUTE: '1000' } })
+    // A low budget (AC4: 300 rows); the per-minute limit of back office changes and the share of one IP
+    // address (test/writesPerIp.test.ts) are lifted so that the budget of everyone is hit first.
+    const api = testApi({ env: { D1_WRITE_BUDGET: '300', ADMIN_CHANGES_PER_MINUTE: '1000', D1_WRITE_BUDGET_PER_IP_PERCENT: '100' } })
     const { session, sandbox } = await api.login()
 
     // Write until the budget refuses: back office changes cost a few rows each.
@@ -48,7 +50,7 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
     api.advance(25 * HOUR)
     const nextDay = utcDate(api.now)
     await env.DB.prepare('INSERT INTO write_budget (day, rows) VALUES (?1, 300)').bind(nextDay).run()
-    const store = new Store(env.DB, 300, api.now)
+    const store = new Store(env.DB, { writeBudget: 300, now: api.now })
     expect(await store.rowsWrittenToday()).toBe(300)
     await api.scheduled()
     const purged = await budgetUsed(nextDay) - 300
@@ -56,8 +58,9 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
     expect((await tableCounts()).sandboxes).toBe(0)
   })
 
-  it('counts exactly the rows_written that D1 reports, plus the update of the count itself', async () => {
-    const store = new Store(env.DB, 60_000, SATURDAY_9AM)
+  it('counts exactly the rows_written that D1 reports, plus the updates of the counts, for everyone and per IP', async () => {
+    const ip = 'v4:203.0.113.10'
+    const store = new Store(env.DB, { writeBudget: 60_000, ip: { key: ip, budget: 3000 }, now: SATURDAY_9AM })
     let reported = 0
     await store.guardedWrite(10, async (write) => {
       const results = await write([
@@ -67,12 +70,21 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
       reported = results.reduce((sum, result) => sum + result.meta.rows_written, 0)
     })
     expect(reported).toBe(3) // one row in meta; one row and one index entry in login_failures
-    expect(await budgetUsed(DAY)).toBe(reported + BUDGET_UPDATE_ROWS)
+    // Both counts get the rows written plus what updating the two counts costs.
+    expect(await budgetUsed(DAY)).toBe(reported + 2 * BUDGET_UPDATE_ROWS)
+    const perIp = await env.DB.prepare('SELECT rows FROM ip_write_budget WHERE day = ?1 AND ip_key = ?2')
+      .bind(DAY, await ipHash(ipKey('203.0.113.10'))).first<{ rows: number }>()
+    expect(perIp?.rows).toBe(reported + 2 * BUDGET_UPDATE_ROWS)
 
-    // The update of the count really costs BUDGET_UPDATE_ROWS, whether it inserts or updates the day.
-    const upsert = 'INSERT INTO write_budget (day, rows) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows'
+    // Each update of a count really costs BUDGET_UPDATE_ROWS, whether it inserts or updates the day.
+    const upserts = [
+      env.DB.prepare('INSERT INTO write_budget (day, rows) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows')
+        .bind('2000-01-01'),
+      env.DB.prepare('INSERT INTO ip_write_budget (day, ip_key, rows) VALUES (?1, ?2, 1) ON CONFLICT (day, ip_key) DO UPDATE SET rows = rows + excluded.rows')
+        .bind('2000-01-01', 'key'),
+    ]
     for (let run = 0; run < 2; run++) {
-      expect((await env.DB.prepare(upsert).bind('2000-01-01').run()).meta.rows_written).toBe(BUDGET_UPDATE_ROWS)
+      for (const upsert of upserts) expect((await upsert.run()).meta.rows_written).toBe(BUDGET_UPDATE_ROWS)
     }
   })
 
@@ -95,6 +107,16 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
     mark = await used()
     const { session } = await api.login({ token })
     expect(await used() - mark).toBeLessThanOrEqual(ROWS_ESTIMATE.session)
+
+    // Signing in when the sandbox already has SESSIONS_PER_SANDBOX sessions also ends the oldest one.
+    for (let count = 1; count < Number(env.SESSIONS_PER_SANDBOX); count++) await api.login({ token })
+    mark = await used()
+    const { session: newest } = await api.login({ token })
+    expect(await used() - mark).toBeLessThanOrEqual(ROWS_ESTIMATE.session)
+
+    mark = await used()
+    expect((await api.request('POST', '/api/admin/logout', { token: newest })).status).toBe(204)
+    expect(await used() - mark).toBeLessThanOrEqual(ROWS_ESTIMATE.adminChange)
 
     mark = await used()
     await api.request('POST', '/api/admin/login', { body: { email: 'demo@nuanplai.example', password: 'wrong' } })
