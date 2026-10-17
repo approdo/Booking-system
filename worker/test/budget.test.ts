@@ -1,9 +1,11 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { ROWS_ESTIMATE } from '../src/estimates'
-import { BUDGET_UPDATE_ROWS, Store } from '../src/store'
-import { utcDate } from '../src/time'
-import { ipHash, ipKey } from '../src/ids'
+import { ROWS_ESTIMATE } from '../src/core/estimates'
+import { sql } from '../src/core/sql'
+import { BUDGET_UPDATE_ROWS, Store } from '../src/core/store'
+import { utcDate } from '../src/core/time'
+import { ipHash, ipKey } from '../src/core/ids'
+import { D1Db } from '../src/platform/cloudflare/d1'
 import { budgetUsed, HOUR, SATURDAY_9AM, tableCounts, testApi } from './helpers'
 
 const DAY = utcDate(SATURDAY_9AM)
@@ -50,7 +52,7 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
     api.advance(25 * HOUR)
     const nextDay = utcDate(api.now)
     await env.DB.prepare('INSERT INTO write_budget (day, rows) VALUES (?1, 300)').bind(nextDay).run()
-    const store = new Store(env.DB, { writeBudget: 300, now: api.now })
+    const store = new Store(new D1Db(env.DB), { writeBudget: 300, now: api.now })
     expect(await store.rowsWrittenToday()).toBe(300)
     await api.scheduled()
     const purged = await budgetUsed(nextDay) - 300
@@ -60,14 +62,14 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
 
   it('counts exactly the rows_written that D1 reports, plus the updates of the counts, for everyone and per IP', async () => {
     const ip = 'v4:203.0.113.10'
-    const store = new Store(env.DB, { writeBudget: 60_000, ip: { key: ip, budget: 3000 }, now: SATURDAY_9AM })
+    const store = new Store(new D1Db(env.DB), { writeBudget: 60_000, ip: { key: ip, budget: 3000 }, now: SATURDAY_9AM })
     let reported = 0
     await store.guardedWrite(10, async (write) => {
       const results = await write([
-        store.prepare('INSERT INTO meta (key, value) VALUES (?1, ?2)').bind('a', '1'),
-        store.prepare('INSERT INTO login_failures (ip_key, at) VALUES (?1, ?2)').bind('k', 1),
+        sql('INSERT INTO meta (key, value) VALUES (?1, ?2)', 'a', '1'),
+        sql('INSERT INTO login_failures (ip_key, at) VALUES (?1, ?2)', 'k', 1),
       ])
-      reported = results.reduce((sum, result) => sum + result.meta.rows_written, 0)
+      reported = results.reduce((sum, result) => sum + (result.rowsWritten ?? 0), 0)
     })
     expect(reported).toBe(3) // one row in meta; one row and one index entry in login_failures
     // Both counts get the rows written plus what updating the two counts costs.

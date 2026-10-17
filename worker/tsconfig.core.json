@@ -1,0 +1,24 @@
+{
+  // The core of the API (src/core) with the standard library only: no platform types at all. Anything
+  // platform-specific used in the core (a database binding, a scheduler, a runtime-only API) fails to compile
+  // here, so the core stays ready to move to another server (README.md, "Moving the back end to your own
+  // server"). `npm run typecheck` runs this after the Worker's own tsconfig.json.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "webworker"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "../app/data/*.ts",
+    "../app/types/*.ts",
+    "../app/utils/bookingRules.ts"
+  ]
+}

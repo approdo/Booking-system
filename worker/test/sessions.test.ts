@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { sha256 } from '../src/ids'
+import { sha256 } from '../src/core/ids'
 import { DEMO_LOGIN, testApi } from './helpers'
 
 /**

@@ -46,8 +46,8 @@ describe('the example bookings', () => {
 describe('one source for the pages and the back end (AC10)', () => {
   it('is imported by both the generated home page and the Worker', () => {
     const page = readFileSync(new URL('../../app/pages/index.vue', import.meta.url), 'utf8')
-    const worker = readFileSync(new URL('../../worker/src/seed.ts', import.meta.url), 'utf8')
+    const worker = readFileSync(new URL('../../worker/src/core/seed.ts', import.meta.url), 'utf8')
     expect(page).toContain('from \'~/data/seed\'')
-    expect(worker).toContain('from \'../../app/data/seed\'')
+    expect(worker).toContain('from \'../../../app/data/seed\'')
   })
 })

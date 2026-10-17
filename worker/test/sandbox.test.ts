@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { ipKey, sha256 } from '../src/ids'
+import { ipKey, sha256 } from '../src/core/ids'
 import { HOUR, MINUTE, sandboxRowCounts, tableCounts, testApi, TODAY } from './helpers'
 
 describe('each visitor\'s sandbox is private (AC2 a)', () => {

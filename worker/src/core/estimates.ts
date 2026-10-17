@@ -2,7 +2,8 @@
  * The most rows each kind of write can cost in D1, rows and index entries together, including the updates
  * of today's two counts (everyone's and the IP address's). The write budgets refuse a request whose
  * estimate would take a count over its budget, before anything is written (D-008 ก, D-011 M1); afterwards
- * they count what D1 really reports.
+ * they count what D1 really reports. A database that reports no rows written is counted by the rows its
+ * statements changed (src/core/store.ts), which these estimates also cover.
  *
  * Measured with local D1 by test/budget.test.ts, which fails if a real write costs more than this
  * (2026-10-17: new sandbox with its first booking 36, booking 4, sign-in 5 (6 when it ends the oldest

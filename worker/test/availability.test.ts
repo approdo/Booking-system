@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { seed } from '../../app/data/seed'
 import { addDays } from '../../app/utils/bookingRules'
-import type { AvailabilityContext } from '../src/availability'
-import { bookingWindow, dayAvailability, isAvailable } from '../src/availability'
-import type { BusyTime, Therapist } from '../src/shop'
+import type { AvailabilityContext } from '../src/core/availability'
+import { bookingWindow, dayAvailability, isAvailable } from '../src/core/availability'
+import type { BusyTime, Therapist } from '../src/core/shop'
 import { TODAY } from './helpers'
 
-// AC1 (a)–(c): the rules of src/availability.ts on the shop's starting data. Saturday 17 October 2026:
+// AC1 (a)–(c): the rules of src/core/availability.ts on the shop's starting data. Saturday 17 October 2026:
 // open 10:00–22:00, last booking 20:30, all four therapists work (their days off are Monday–Thursday).
 
 const therapists: Therapist[] = seed.therapists.map(therapist => ({

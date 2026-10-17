@@ -5,8 +5,8 @@ import {
   SLOT_STEP_MINUTES,
   timeFromMinutes,
   weekdayOf,
-} from '../../app/utils/bookingRules'
-import type { DayAvailability, DayStatus, Slot } from '../../app/types/api'
+} from '../../../app/utils/bookingRules'
+import type { DayAvailability, DayStatus, Slot } from '../../../app/types/api'
 import type { BusyTime, Shop, Therapist } from './shop'
 
 /**

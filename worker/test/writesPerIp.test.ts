@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { ipHash, ipKey } from '../src/ids'
-import { utcDate } from '../src/time'
+import { ipHash, ipKey } from '../src/core/ids'
+import { utcDate } from '../src/core/time'
 import { DEMO_LOGIN, rowsCounter, SATURDAY_9AM, testApi } from './helpers'
 import type { TestResponse } from './helpers'
 

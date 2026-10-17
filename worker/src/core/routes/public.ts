@@ -1,4 +1,4 @@
-import type { BookingStatus } from '../../../app/utils/bookingRules'
+import type { BookingStatus } from '../../../../app/utils/bookingRules'
 import {
   addDays,
   BOOKING_WINDOW_DAYS,
@@ -7,7 +7,7 @@ import {
   SERVICE_MINUTES,
   timeFromMinutes,
   validateCustomer,
-} from '../../../app/utils/bookingRules'
+} from '../../../../app/utils/bookingRules'
 import { bookingWindow, dayAvailability, isAvailable } from '../availability'
 import { bookingLimitReached, insertBookingStatement } from '../bookings'
 import type { BookingLimits } from '../bookings'
@@ -16,12 +16,13 @@ import { ApiError, invalidInput } from '../errors'
 import { ROWS_ESTIMATE } from '../estimates'
 import { json, readJsonObject } from '../http'
 import { newBookingCode } from '../ids'
+import type { RunResult } from '../ports'
 import { bearerToken, findSandbox, newSandbox, sandboxCreated } from '../sandbox'
 import type { NewSandbox, Sandbox } from '../sandbox'
 import { ensureSeed } from '../seed'
 import type { Booking, Shop } from '../shop'
 import { loadBusyTimes, loadShop, SEED_SANDBOX } from '../shop'
-import { isConstraintError } from '../store'
+import { sql } from '../sql'
 import { MINUTE_MS } from '../time'
 
 /**
@@ -47,7 +48,7 @@ function bookableDates(context: Context) {
 
 /** GET /health: only whether the Worker answers and when the last purge ran. */
 export const health: Handler = async ({ store }) => {
-  const row = await store.first<{ value: string }>(store.prepare('SELECT value FROM meta WHERE key = ?1').bind('last_purge_at'))
+  const row = await store.first<{ value: string }>(sql('SELECT value FROM meta WHERE key = ?1', 'last_purge_at'))
   return json({ ok: true, last_purge_at: row?.value ?? null })
 }
 
@@ -138,10 +139,10 @@ export const createBooking: Handler = async (context) => {
     throw new ApiError('slot_taken')
   }
 
-  // 4. Write: the new sandbox (on the first booking) and the booking, in one batch.
+  // 4. Write: the new sandbox (on the first booking) and the booking, in one transaction.
   const estimate = ROWS_ESTIMATE.booking + (sandbox ? 0 : ROWS_ESTIMATE.newSandbox)
   return store.guardedWrite(estimate, async (write) => {
-    // A booking number already used in this sandbox breaks the batch's unique key: try another one.
+    // A booking number already used in this sandbox breaks the transaction's unique key: try another one.
     for (let attempt = 1; ; attempt++) {
       let created: NewSandbox | null = null
       let sandboxId: string
@@ -149,27 +150,27 @@ export const createBooking: Handler = async (context) => {
         sandboxId = sandbox.id
       }
       else {
-        created = await newSandbox(store, { ipKey: context.ipKey, now, limit: settings.sandboxesPer10MinutesPerIp, random: context.random })
+        created = await newSandbox({ ipKey: context.ipKey, now, limit: settings.sandboxesPer10MinutesPerIp, random: context.random })
         sandboxId = created.id
       }
       const code = newBookingCode(context.random)
-      const statements = [...(created?.statements ?? []), insertBookingStatement(store, {
+      const statements = [...(created?.statements ?? []), insertBookingStatement({
         sandboxId, code, serviceId: service.id, serviceName: service.name, minutes, price: option.price,
         therapistId, date, start, customerName: customer.name, phone: customer.phone, createdAt: now,
       }, limits)]
 
-      let results: D1Result[]
+      let results: RunResult[]
       try {
         results = await write(statements)
       }
       catch (error) {
-        if (isConstraintError(error) && attempt < 3) continue
+        if (store.isConstraintError(error) && attempt < 3) continue
         throw error
       }
 
       if (created && !sandboxCreated(results)) throw new ApiError('rate_limited')
       const newSandboxDetails = created ? { sandbox: { token: created.token, expiresAt: new Date(now + settings.sandboxTtlMs).toISOString() } } : {}
-      if (results.at(-1)?.meta.changes !== 1) {
+      if (results.at(-1)?.changes !== 1) {
         // The INSERT refused: either the time was taken meanwhile, or other requests used up the limit.
         if (sandbox && await bookingLimitReached(store, sandbox.id, limits)) throw new ApiError('rate_limited')
         throw new ApiError('slot_taken', newSandboxDetails)

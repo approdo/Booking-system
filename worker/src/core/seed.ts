@@ -1,15 +1,17 @@
-import { seed } from '../../app/data/seed'
-import { addDays, minutesFromTime, normalizePhone } from '../../app/utils/bookingRules'
+import { seed } from '../../../app/data/seed'
+import { addDays, minutesFromTime, normalizePhone } from '../../../app/utils/bookingRules'
+import type { Statement } from './ports'
 import { maskFromWorkDays, SEED_SANDBOX } from './shop'
+import { sql } from './sql'
 import type { Store } from './store'
 
 /**
- * The starting data in D1, under the sandbox 'seed'. It comes from app/data/seed.ts, the same file the
- * booking pages are generated from, so the two never disagree (BK-005 scope 12).
+ * The starting data in the database, under the sandbox 'seed'. It comes from app/data/seed.ts, the same
+ * file the booking pages are generated from, so the two never disagree (BK-005 scope 12).
  *
  * The example bookings are dated from today (Thai time), so the starting data is written again on the
- * first request of each Thai day, and whenever seed.ts changes (a new deploy). That is one batch of about
- * 30 rows a day, written by the Worker for itself: counted in the write budget but never refused, like
+ * first request of each Thai day, and whenever seed.ts changes (a new deploy). That is one transaction of
+ * about 30 rows a day, written by the API for itself: counted in the write budget but never refused, like
  * the purge. Visitors only read it, and a new sandbox copies it with INSERT ... SELECT.
  */
 
@@ -26,7 +28,7 @@ function fingerprint(text: string): string {
 const SEED_VERSION = fingerprint(JSON.stringify(seed))
 const SEED_META_KEY = 'seed'
 
-/** Remembers, per Worker instance, which day's starting data is known to be in D1. */
+/** Remembers, per running instance of the API, which day's starting data is known to be in the database. */
 export interface SeedCache {
   installed: string | null
 }
@@ -82,14 +84,15 @@ function seedRows(today: string) {
 }
 
 /**
- * Statements that replace the 'seed' sandbox with the starting data dated from `today`, for one batch.
+ * Statements that replace the 'seed' sandbox with the starting data dated from `today`, for one transaction.
  *
  * Each statement writes only while this version of the starting data is not recorded in meta, and the
- * last one records it. D1 runs the batches of requests sent at the same moment one after another, so when
- * the first requests of a day all find the data missing, the first batch writes it and every later batch
- * writes nothing (D-011 M2): the Worker's own writes stay one installation a day.
+ * last one records it. The database runs the transactions of requests sent at the same moment one after
+ * another (Db.transaction), so when the first requests of a day all find the data missing, the first
+ * transaction writes it and every later one writes nothing (D-011 M2): the API's own writes stay one
+ * installation a day.
  */
-function installStatements(store: Store, today: string, now: number): D1PreparedStatement[] {
+function installStatements(today: string, now: number): Statement[] {
   const rows = seedRows(today)
   const version = `${SEED_VERSION}:${today}`
   const field = (name: string) => `json_extract(value, '$.${name}')`
@@ -98,28 +101,28 @@ function installStatements(store: Store, today: string, now: number): D1Prepared
     `NOT EXISTS (SELECT 1 FROM meta WHERE key = '${SEED_META_KEY}' AND value = ${parameter})`
   return [
     ...['services', 'therapists', 'shop_settings', 'bookings'].map(table =>
-      store.prepare(`DELETE FROM ${table} WHERE sandbox_id = ?1 AND ${notInstalled('?2')}`).bind(SEED_SANDBOX, version)),
+      sql(`DELETE FROM ${table} WHERE sandbox_id = ?1 AND ${notInstalled('?2')}`, SEED_SANDBOX, version)),
     // One statement per table, the rows passed as one JSON parameter (D1 allows at most 100 per query).
-    store.prepare(`INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
+    sql(`INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
       SELECT ?1, ${field('id')}, ${field('categoryId')}, ${field('name')}, ${field('description')}, ${field('includes')},
-        ${field('options')}, 1, key FROM json_each(?2) WHERE ${notInstalled('?3')}`)
-      .bind(SEED_SANDBOX, JSON.stringify(rows.services), version),
-    store.prepare(`INSERT INTO therapists (sandbox_id, id, name, initial, role, years, specialty, work_days, leave_dates, position)
+        ${field('options')}, 1, key FROM json_each(?2) WHERE ${notInstalled('?3')}`,
+    SEED_SANDBOX, JSON.stringify(rows.services), version),
+    sql(`INSERT INTO therapists (sandbox_id, id, name, initial, role, years, specialty, work_days, leave_dates, position)
       SELECT ?1, ${field('id')}, ${field('name')}, ${field('initial')}, ${field('role')}, ${field('years')},
-        ${field('specialty')}, ${field('workDays')}, '[]', key FROM json_each(?2) WHERE ${notInstalled('?3')}`)
-      .bind(SEED_SANDBOX, JSON.stringify(rows.therapists), version),
-    store.prepare(`INSERT INTO shop_settings (sandbox_id, hours, closed_dates) SELECT ?1, ?2, ?3 WHERE ${notInstalled('?4')}`)
-      .bind(SEED_SANDBOX, JSON.stringify(rows.hours), JSON.stringify(rows.closedDates), version),
-    store.prepare(`INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date,
+        ${field('specialty')}, ${field('workDays')}, '[]', key FROM json_each(?2) WHERE ${notInstalled('?3')}`,
+    SEED_SANDBOX, JSON.stringify(rows.therapists), version),
+    sql(`INSERT INTO shop_settings (sandbox_id, hours, closed_dates) SELECT ?1, ?2, ?3 WHERE ${notInstalled('?4')}`,
+      SEED_SANDBOX, JSON.stringify(rows.hours), JSON.stringify(rows.closedDates), version),
+    sql(`INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date,
         start_min, end_min, customer_name, phone, status, is_seed, created_at)
       SELECT ?1, ${field('code')}, ${field('serviceId')}, ${field('serviceName')}, ${field('minutes')}, ${field('price')},
         ${field('therapistId')}, ${field('date')}, ${field('start')}, ${field('end')}, ${field('customerName')},
-        ${field('phone')}, ${field('status')}, 1, ?3 FROM json_each(?2) WHERE ${notInstalled('?4')}`)
-      .bind(SEED_SANDBOX, JSON.stringify(rows.bookings), now, version),
+        ${field('phone')}, ${field('status')}, 1, ?3 FROM json_each(?2) WHERE ${notInstalled('?4')}`,
+    SEED_SANDBOX, JSON.stringify(rows.bookings), now, version),
     // Last: records the version, which turns every statement above into "write nothing".
-    store.prepare(`INSERT INTO meta (key, value) SELECT ?1, ?2 WHERE ${notInstalled('?2')}
-      ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
-      .bind(SEED_META_KEY, version),
+    sql(`INSERT INTO meta (key, value) SELECT ?1, ?2 WHERE ${notInstalled('?2')}
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    SEED_META_KEY, version),
   ]
 }
 
@@ -127,7 +130,7 @@ function installStatements(store: Store, today: string, now: number): D1Prepared
 export async function ensureSeed(store: Store, cache: SeedCache, today: string, now: number): Promise<void> {
   const wanted = `${SEED_VERSION}:${today}`
   if (cache.installed === wanted) return
-  const row = await store.first<{ value: string }>(store.prepare('SELECT value FROM meta WHERE key = ?1').bind(SEED_META_KEY))
-  if (row?.value !== wanted) await store.unguardedWrite(write => write(installStatements(store, today, now)))
+  const row = await store.first<{ value: string }>(sql('SELECT value FROM meta WHERE key = ?1', SEED_META_KEY))
+  if (row?.value !== wanted) await store.unguardedWrite(write => write(installStatements(today, now)))
   cache.installed = wanted
 }

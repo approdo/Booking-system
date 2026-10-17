@@ -10,7 +10,7 @@
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "dev:e2e": "node scripts/e2e-server.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.core.json",
     "check:deploy": "wrangler deploy --env production --dry-run --outdir .wrangler/dry-run"
   },
   "devDependencies": {

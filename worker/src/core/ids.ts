@@ -1,6 +1,6 @@
-import { bookingCodeFromBytes } from '../../app/utils/bookingRules'
+import { bookingCodeFromBytes } from '../../../app/utils/bookingRules'
 
-/** Random bytes from the Workers runtime's cryptographic generator. Tests can pass their own. */
+/** Random bytes from the runtime's cryptographic generator (Web Crypto: Workers, Node 19+). Tests can pass their own. */
 export type RandomBytes = (length: number) => Uint8Array
 
 export const randomBytes: RandomBytes = length => crypto.getRandomValues(new Uint8Array(length))
@@ -53,12 +53,14 @@ function ipv6Groups(address: string): number[] | null {
 }
 
 /**
- * Who a request counts against for per-IP limits (D-008 ค), from the CF-Connecting-IP header that
- * Cloudflare sets: an IPv4 address on its own, an IPv6 address by its /64 network (one home or phone
- * usually gets a whole /64), an IPv4 address written as IPv6 (::ffff:a.b.c.d) as IPv4.
+ * Who a request counts against for per-IP limits (D-008 ค), from the caller's IP address as the platform
+ * reports it (src/platform/cloudflare/clientIp.ts), or null when it does not know: an IPv4 address on its
+ * own, an IPv6 address by its /64 network (one home or phone usually gets a whole /64), an IPv4 address
+ * written as IPv6 (::ffff:a.b.c.d) as IPv4. The address must come from something a client cannot forge,
+ * or every per-IP limit can be dodged.
  */
-export function ipKey(connectingIp: string | null): string {
-  const address = (connectingIp ?? '').trim().toLowerCase()
+export function ipKey(clientIp: string | null): string {
+  const address = (clientIp ?? '').trim().toLowerCase()
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(address)
   if (mapped) return `v4:${mapped[1]}`
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return `v4:${address}`

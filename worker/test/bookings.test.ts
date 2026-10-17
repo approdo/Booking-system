@@ -1,10 +1,13 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { BOOKING_CODE_PATTERN } from '../../app/utils/bookingRules'
-import { insertBookingStatement } from '../src/bookings'
-import { newBookingCode, randomBytes, sha256 } from '../src/ids'
-import { Store } from '../src/store'
+import { insertBookingStatement } from '../src/core/bookings'
+import { newBookingCode, randomBytes, sha256 } from '../src/core/ids'
+import type { Statement } from '../src/core/ports'
 import { SATURDAY_9AM, testApi, TODAY } from './helpers'
+
+/** A statement of the core as D1's own prepared statement, to run it in a batch of the test's choice. */
+const prepared = (statement: Statement) => env.DB.prepare(statement.sql).bind(...statement.params)
 
 describe('two bookings of the same time at the same moment (AC1 d)', () => {
   it('lets exactly one through and tells the other the time is taken', async () => {
@@ -23,12 +26,11 @@ describe('two bookings of the same time at the same moment (AC1 d)', () => {
     const api = testApi()
     const { body } = await api.book({ therapistId: 'somsri', time: '16:00' })
     const sandboxId = await sha256(body.sandbox.token)
-    const store = new Store(env.DB, { writeBudget: 60_000, now: SATURDAY_9AM })
     const booking = { sandboxId, serviceId: 'thai-traditional', serviceName: 'นวดแผนไทย', minutes: 60, price: 400, therapistId: 'preecha', date: TODAY, start: 16 * 60, customerName: 'ทดลอง ตัวอย่าง', phone: '020000000', createdAt: SATURDAY_9AM }
     const limits = { windowStart: 0, perWindow: 100, perSandbox: 100 } // far from both limits
     const results = await env.DB.batch([
-      insertBookingStatement(store, { ...booking, code: 'NP-AAAA2' }, limits),
-      insertBookingStatement(store, { ...booking, code: 'NP-AAAA3' }, limits),
+      prepared(insertBookingStatement({ ...booking, code: 'NP-AAAA2' }, limits)),
+      prepared(insertBookingStatement({ ...booking, code: 'NP-AAAA3' }, limits)),
     ])
     expect(results.map(result => result.meta.changes)).toEqual([1, 0])
   })

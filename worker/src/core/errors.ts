@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from '../../app/types/api'
+import type { ApiErrorCode } from '../../../app/types/api'
 
 /**
  * Error codes of the API (spec sections 4 and 5). The booking pages turn them into the messages of the
@@ -8,8 +8,8 @@ export type ErrorCode = ApiErrorCode
 
 // invalid_input: a field is missing or wrong (`fields` names each one) · unauthorized: a back office request
 // without a valid session · slot_taken: the time is no longer free · invalid_transition: a status change
-// outside spec section 4 · sandbox_expired: the sandbox is older than 24 hours · demo_full: today's D1 write
-// budget is used up (D-008), reads still work · backend_unavailable: D1 failed twice in a row.
+// outside spec section 4 · sandbox_expired: the sandbox is older than 24 hours · demo_full: today's write
+// budget is used up (D-008), reads still work · backend_unavailable: the database failed twice in a row.
 const STATUS: Record<ErrorCode, number> = {
   invalid_input: 400,
   unauthorized: 401,

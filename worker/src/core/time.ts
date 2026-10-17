@@ -1,6 +1,6 @@
 /**
  * Thai time. Thailand has no daylight saving time, so Asia/Bangkok is always UTC+7 and plain arithmetic
- * is enough (no Intl time zone data needed in the Worker).
+ * is enough (no Intl time zone data needed on the server).
  */
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
 
@@ -17,7 +17,7 @@ export function bangkokMinutes(now: number): number {
   return time.getUTCHours() * 60 + time.getUTCMinutes()
 }
 
-/** Today's date in UTC, 'YYYY-MM-DD': the day of the free plan's quotas. */
+/** Today's date in UTC, 'YYYY-MM-DD': the day of the write budgets (D1's free plan resets its quotas at 00:00 UTC). */
 export function utcDate(now: number): string {
   return new Date(now).toISOString().slice(0, 10)
 }

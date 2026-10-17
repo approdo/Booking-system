@@ -1,5 +1,5 @@
-import { demoAccount } from '../../../app/data/demoAccount'
-import { seed } from '../../../app/data/seed'
+import { demoAccount } from '../../../../app/data/demoAccount'
+import { seed } from '../../../../app/data/seed'
 import {
   addDays,
   BOOKING_WINDOW_DAYS,
@@ -12,8 +12,8 @@ import {
   normalizeBookingCode,
   SERVICE_MAX_COUNT,
   validateService,
-} from '../../../app/utils/bookingRules'
-import type { DayHoursInput, ServiceOptionInput } from '../../../app/utils/bookingRules'
+} from '../../../../app/utils/bookingRules'
+import type { DayHoursInput, ServiceOptionInput } from '../../../../app/utils/bookingRules'
 import { changeStatusStatement, restoreBookingStatement } from '../bookings'
 import type { Context, Handler } from '../context'
 import { ApiError, invalidInput } from '../errors'
@@ -25,6 +25,7 @@ import type { NewSandbox, Sandbox } from '../sandbox'
 import { ensureSeed } from '../seed'
 import type { BookingRow, DayHours, Service, Therapist } from '../shop'
 import { BOOKING_COLUMNS, bookingFromRow, loadBooking, loadShop, maskFromWorkDays } from '../shop'
+import { sql } from '../sql'
 import type { Write } from '../store'
 import { MINUTE_MS } from '../time'
 
@@ -44,9 +45,10 @@ async function requireSession(context: Context): Promise<{ sessionId: string, sa
   const token = bearerToken(context.request)
   if (!token) throw new ApiError('unauthorized')
   const sessionId = await sha256(token)
-  const row = await context.store.first<{ sandbox_id: string, created_at: number | null }>(context.store.prepare(
+  const row = await context.store.first<{ sandbox_id: string, created_at: number | null }>(sql(
     'SELECT s.sandbox_id, b.created_at FROM sessions s LEFT JOIN sandboxes b ON b.id = s.sandbox_id WHERE s.id = ?1',
-  ).bind(sessionId))
+    sessionId,
+  ))
   if (!row) throw new ApiError('unauthorized')
   const ttl = context.settings.sandboxTtlMs
   if (row.created_at === null || context.now - row.created_at >= ttl) throw new ApiError('sandbox_expired')
@@ -55,17 +57,23 @@ async function requireSession(context: Context): Promise<{ sessionId: string, sa
 
 /**
  * Counts one back office change of a sandbox, or answers 429 rate_limited: at most ADMIN_CHANGES_PER_MINUTE
- * per sandbox, counted on the sandbox row itself (no counter table). SQLite computes every SET from the old
- * values, and D1 runs one statement at a time, so requests sent at the same moment cannot pass it together.
+ * per sandbox, counted on the sandbox row itself (no counter table). SQL computes every SET from the old
+ * values, and write transactions run one at a time (Db.transaction), so requests sent at the same moment
+ * cannot pass it together.
  */
 async function countChange(context: Context, write: Write, sandboxId: string): Promise<void> {
-  const { store, now, settings } = context
-  const [count] = await write([store.prepare(`UPDATE sandboxes SET
+  const { now, settings } = context
+  const [count] = await write([sql(
+    `UPDATE sandboxes SET
       change_count = CASE WHEN change_window_start > ?2 THEN change_count + 1 ELSE 1 END,
       change_window_start = CASE WHEN change_window_start > ?2 THEN change_window_start ELSE ?3 END
-    WHERE id = ?1 AND NOT (change_window_start > ?2 AND change_count >= ?4)`)
-    .bind(sandboxId, now - MINUTE_MS, now, settings.adminChangesPerMinute)])
-  if (count?.meta.changes !== 1) throw new ApiError('rate_limited')
+    WHERE id = ?1 AND NOT (change_window_start > ?2 AND change_count >= ?4)`,
+    sandboxId,
+    now - MINUTE_MS,
+    now,
+    settings.adminChangesPerMinute,
+  )])
+  if (count?.changes !== 1) throw new ApiError('rate_limited')
 }
 
 /** A back office change: inside the write budgets, and counted by countChange(). */
@@ -76,12 +84,25 @@ function adminChange<T>(context: Context, sandbox: Sandbox, work: (write: Write)
   })
 }
 
-/** Compares the password without leaking, through timing, how much of it was right. */
+/**
+ * Whether two byte strings are equal, in a time that does not depend on where they first differ: every
+ * byte is compared, and the differences are only added up.
+ */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let difference = 0
+  for (let index = 0; index < a.length; index++) difference |= (a[index] ?? 0) ^ (b[index] ?? 0)
+  return difference === 0
+}
+
+/**
+ * Compares the password without leaking, through timing, how much of it was right: the SHA-256 digests of
+ * the two passwords are compared, always 32 bytes, in constant time.
+ */
 async function credentialsMatch(email: string, password: string): Promise<boolean> {
-  const digest = (value: string) => crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  const digest = async (value: string) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))
   const [given, expected] = await Promise.all([digest(password), digest(demoAccount.password)])
-  const passwordMatches = crypto.subtle.timingSafeEqual(given, expected)
-  return passwordMatches && email.trim().toLowerCase() === demoAccount.email
+  return sameBytes(given, expected) && email.trim().toLowerCase() === demoAccount.email
 }
 
 /**
@@ -112,13 +133,17 @@ export const login: Handler = async (context) => {
     // share (mobile networks), other people's typos must not lock out a visitor with the right password.
     if (!(await credentialsMatch(email, password))) {
       // Remembered only while this address has fewer than the limit in the last 10 minutes. The INSERT
-      // counts itself, and D1 runs one statement at a time, so wrong passwords sent at the same moment
-      // cannot pass the limit together.
-      const [remembered] = await write([store.prepare(
+      // counts itself, and write transactions run one at a time (Db.transaction), so wrong passwords sent
+      // at the same moment cannot pass the limit together.
+      const [remembered] = await write([sql(
         `INSERT INTO login_failures (ip_key, at) SELECT ?1, ?2
          WHERE (SELECT COUNT(*) FROM login_failures WHERE ip_key = ?1 AND at > ?3) < ?4`,
-      ).bind(ipKeyHash, now, windowStart, settings.loginFailuresPer10Minutes)])
-      throw new ApiError(remembered?.meta.changes === 1 ? 'invalid_credentials' : 'rate_limited')
+        ipKeyHash,
+        now,
+        windowStart,
+        settings.loginFailuresPer10Minutes,
+      )])
+      throw new ApiError(remembered?.changes === 1 ? 'invalid_credentials' : 'rate_limited')
     }
 
     // The visitor's sandbox while it is still valid; a new one otherwise (the old one is gone or going).
@@ -138,9 +163,9 @@ export const login: Handler = async (context) => {
       sandboxId = sandbox.id
     }
     else {
-      // A new sandbox copies today's starting data, so make sure it is in D1 first.
+      // A new sandbox copies today's starting data, so make sure it is in the database first.
       await ensureSeed(store, context.seedCache, context.today, now)
-      created = await newSandbox(store, { ipKey: context.ipKey, now, limit: settings.sandboxesPer10MinutesPerIp, random: context.random })
+      created = await newSandbox({ ipKey: context.ipKey, now, limit: settings.sandboxesPer10MinutesPerIp, random: context.random })
       sandboxId = created.id
     }
 
@@ -148,14 +173,21 @@ export const login: Handler = async (context) => {
     const results = await write([
       ...(created?.statements ?? []),
       // Room for the new session: the sandbox keeps only its newest SESSIONS_PER_SANDBOX - 1 others. In the
-      // same batch as the INSERT, so sign-ins sent at the same moment cannot add more together.
+      // same transaction as the INSERT, so sign-ins sent at the same moment cannot add more together.
       ...(created
         ? []
-        : [store.prepare(`DELETE FROM sessions WHERE sandbox_id = ?1 AND id NOT IN (
-            SELECT id FROM sessions WHERE sandbox_id = ?1 ORDER BY created_at DESC LIMIT ?2)`)
-            .bind(sandboxId, settings.sessionsPerSandbox - 1)]),
-      store.prepare('INSERT INTO sessions (id, sandbox_id, created_at) SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM sandboxes WHERE id = ?2)')
-        .bind(await sha256(sessionToken), sandboxId, now),
+        : [sql(
+            `DELETE FROM sessions WHERE sandbox_id = ?1 AND id NOT IN (
+              SELECT id FROM sessions WHERE sandbox_id = ?1 ORDER BY created_at DESC LIMIT ?2)`,
+            sandboxId,
+            settings.sessionsPerSandbox - 1,
+          )]),
+      sql(
+        'INSERT INTO sessions (id, sandbox_id, created_at) SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM sandboxes WHERE id = ?2)',
+        await sha256(sessionToken),
+        sandboxId,
+        now,
+      ),
     ])
     if (created && !sandboxCreated(results)) throw new ApiError('rate_limited')
 
@@ -174,16 +206,17 @@ export const login: Handler = async (context) => {
 export const logout: Handler = async (context) => {
   const { sessionId, sandbox } = await requireSession(context)
   await adminChange(context, sandbox, write =>
-    write([context.store.prepare('DELETE FROM sessions WHERE id = ?1').bind(sessionId)]))
+    write([sql('DELETE FROM sessions WHERE id = ?1', sessionId)]))
   return noContent()
 }
 
 /** GET /api/admin/bookings: every booking of the sandbox, by date and time. */
 export const listBookings: Handler = async (context) => {
   const { sandbox } = await requireSession(context)
-  const rows = await context.store.all<BookingRow>(context.store.prepare(
+  const rows = await context.store.all<BookingRow>(sql(
     `SELECT ${BOOKING_COLUMNS} FROM bookings WHERE sandbox_id = ?1 ORDER BY date, start_min, code`,
-  ).bind(sandbox.id))
+    sandbox.id,
+  ))
   return json({ today: context.today, bookings: rows.map(bookingFromRow) })
 }
 
@@ -205,7 +238,7 @@ export const changeBookingStatus: Handler = async (context, params) => {
   await adminChange(context, sandbox, async (write) => {
     const restoring = booking.status === 'cancelled'
     const statement = restoring
-      ? restoreBookingStatement(context.store, {
+      ? restoreBookingStatement({
           sandboxId: sandbox.id,
           code,
           date: booking.date,
@@ -213,9 +246,9 @@ export const changeBookingStatus: Handler = async (context, params) => {
           end: minutesFromTime(booking.end) ?? 0,
           therapistId: booking.therapistId,
         })
-      : changeStatusStatement(context.store, { sandboxId: sandbox.id, code, from: booking.status, to })
+      : changeStatusStatement({ sandboxId: sandbox.id, code, from: booking.status, to })
     const [result] = await write([statement])
-    if (result?.meta.changes !== 1) throw new ApiError(restoring ? 'slot_taken' : 'invalid_transition')
+    if (result?.changes !== 1) throw new ApiError(restoring ? 'slot_taken' : 'invalid_transition')
   })
   return json({ booking: { ...booking, status: to } })
 }
@@ -273,13 +306,21 @@ export const createService: Handler = async (context) => {
   await adminChange(context, sandbox, async (write) => {
     // Counted inside the INSERT, so requests sent at the same moment cannot pass the limit together.
     // Services are never deleted (spec section 7): their count is also the next position in the list.
-    const [inserted] = await write([context.store.prepare(
+    const [inserted] = await write([sql(
       `INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
        SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, service_count
        FROM (SELECT COUNT(*) AS service_count FROM services WHERE sandbox_id = ?1)
        WHERE service_count < ?8`,
-    ).bind(sandbox.id, id, input.categoryId, input.name, input.description, JSON.stringify(input.options), input.enabled ? 1 : 0, SERVICE_MAX_COUNT)])
-    if (inserted?.meta.changes !== 1) throw invalidInput({ services: 'services_too_many' })
+      sandbox.id,
+      id,
+      input.categoryId,
+      input.name,
+      input.description,
+      JSON.stringify(input.options),
+      input.enabled ? 1 : 0,
+      SERVICE_MAX_COUNT,
+    )])
+    if (inserted?.changes !== 1) throw invalidInput({ services: 'services_too_many' })
   })
   const service: Service = { id, includes: null, ...input }
   return json({ service }, 201)
@@ -296,9 +337,16 @@ export const updateService: Handler = async (context, params) => {
   const current = shop.services.find(service => service.id === params.id)
   if (!current) throw new ApiError('not_found')
   const input = checkedService({ ...current, ...body })
-  await adminChange(context, sandbox, write => write([context.store.prepare(
+  await adminChange(context, sandbox, write => write([sql(
     'UPDATE services SET category_id = ?3, name = ?4, description = ?5, options = ?6, enabled = ?7 WHERE sandbox_id = ?1 AND id = ?2',
-  ).bind(sandbox.id, current.id, input.categoryId, input.name, input.description, JSON.stringify(input.options), input.enabled ? 1 : 0)]))
+    sandbox.id,
+    current.id,
+    input.categoryId,
+    input.name,
+    input.description,
+    JSON.stringify(input.options),
+    input.enabled ? 1 : 0,
+  )]))
   const service: Service = { ...current, ...input }
   return json({ service })
 }
@@ -323,9 +371,7 @@ export const updateHours: Handler = async (context) => {
   }
   if (Object.keys(fields).length > 0) throw invalidInput(fields)
 
-  await adminChange(context, sandbox, write => write([context.store.prepare(
-    'UPDATE shop_settings SET hours = ?2 WHERE sandbox_id = ?1',
-  ).bind(sandbox.id, JSON.stringify(hours))]))
+  await adminChange(context, sandbox, write => write([sql('UPDATE shop_settings SET hours = ?2 WHERE sandbox_id = ?1', sandbox.id, JSON.stringify(hours))]))
   return json({ hours })
 }
 
@@ -342,9 +388,7 @@ async function saveClosedDates(context: Context, sandbox: Sandbox, change: (date
   const dates = new Set(shop.closedDates)
   change(dates)
   const closedDates = [...dates].sort()
-  await adminChange(context, sandbox, write => write([context.store.prepare(
-    'UPDATE shop_settings SET closed_dates = ?2 WHERE sandbox_id = ?1',
-  ).bind(sandbox.id, JSON.stringify(closedDates))]))
+  await adminChange(context, sandbox, write => write([sql('UPDATE shop_settings SET closed_dates = ?2 WHERE sandbox_id = ?1', sandbox.id, JSON.stringify(closedDates))]))
   return json({ closedDates })
 }
 
@@ -367,9 +411,13 @@ async function saveTherapist(context: Context, sandbox: Sandbox, id: string, cha
   if (!current) throw new ApiError('not_found')
   const therapist = change(current)
   therapist.leaveDates = [...new Set(therapist.leaveDates)].sort()
-  await adminChange(context, sandbox, write => write([context.store.prepare(
+  await adminChange(context, sandbox, write => write([sql(
     'UPDATE therapists SET work_days = ?3, leave_dates = ?4 WHERE sandbox_id = ?1 AND id = ?2',
-  ).bind(sandbox.id, id, maskFromWorkDays(therapist.workDays), JSON.stringify(therapist.leaveDates))]))
+    sandbox.id,
+    id,
+    maskFromWorkDays(therapist.workDays),
+    JSON.stringify(therapist.leaveDates),
+  )]))
   return json({ therapist })
 }
 

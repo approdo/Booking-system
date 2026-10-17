@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { HOUR, rowsCounter, sandboxRowCounts, testApi } from './helpers'
 
 /**
- * Today's starting data is written by the Worker itself, outside the write budget's refusals (src/seed.ts).
+ * Today's starting data is written by the Worker itself, outside the write budget's refusals (src/core/seed.ts).
  * When the first requests of a day arrive at the same moment, they all see that it is missing; only one may
  * write it, the others must write nothing (BK-005 scope 13, D-011 M2).
  */

@@ -42,8 +42,8 @@ export async function readJsonObject(request: Request): Promise<Record<string, u
 
 /**
  * CORS headers for a request from one of the allowed origins (the booking pages on GitHub Pages and the
- * local preview). Tokens travel in the Authorization header, not in cookies, because github.io and
- * workers.dev are different sites (D-006).
+ * local preview). Tokens travel in the Authorization header, not in cookies, because the pages and the API
+ * are on different sites (github.io and the API's own host — D-006).
  */
 export function corsHeaders(request: Request, allowedOrigins: readonly string[]): Record<string, string> {
   const origin = request.headers.get('Origin')

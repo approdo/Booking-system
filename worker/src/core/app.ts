@@ -3,12 +3,12 @@ import { ApiError } from './errors'
 import { corsHeaders, errorResponse, json, withHeaders } from './http'
 import { ipKey, randomBytes } from './ids'
 import type { RandomBytes } from './ids'
+import type { Config, Db } from './ports'
 import { purge } from './purge'
 import * as admin from './routes/admin'
 import * as customer from './routes/public'
 import type { SeedCache } from './seed'
-import { readSettings } from './settings'
-import type { Env } from './settings'
+import { parseSettings } from './settings'
 import { Store } from './store'
 import { bangkokDate, bangkokMinutes } from './time'
 
@@ -51,36 +51,46 @@ function findRoute(method: string, pathname: string): { handler: Handler, params
   return { handler: route.handler, params }
 }
 
-export interface AppOptions {
+export interface CoreOptions {
   /** The current time in ms; tests move it forward. */
   now?: () => number
   random?: RandomBytes
 }
 
+/** What the platform hands the core on every call: the database and the settings by name. */
+export interface Platform {
+  db: Db
+  config: Config
+}
+
 /**
- * The Worker: `fetch` answers the API, `scheduled` runs the daily purge. Tests create their own app
- * with a clock they control; src/index.ts exports the real one.
+ * The booking API without any platform: `handle` answers one request, `runDailyPurge` runs the daily purge.
+ * A platform (src/platform/cloudflare/) turns its own requests, database and schedule into these calls.
+ * Tests create their own core with a clock they control.
  */
-export function createApp(options: AppOptions = {}) {
+export function createCore(options: CoreOptions = {}) {
   const now = options.now ?? (() => Date.now())
   const random = options.random ?? randomBytes
   const seedCache: SeedCache = { installed: null }
 
   return {
-    async fetch(request: Request, env: Env): Promise<Response> {
-      const settings = readSettings(env)
+    /**
+     * Answers one API request. `clientIp` is the caller's IP address as the platform knows it (never a
+     * header a client could set itself), or null when it does not know.
+     */
+    async handle(request: Request, clientIp: string | null, platform: Platform): Promise<Response> {
+      const settings = parseSettings(platform.config)
       const cors = corsHeaders(request, settings.allowedOrigins)
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
 
       const url = new URL(request.url)
       const time = now()
-      const callerIpKey = ipKey(request.headers.get('CF-Connecting-IP'))
+      const callerIpKey = ipKey(clientIp)
       const context: Context = {
         request,
         url,
-        env,
         settings,
-        store: new Store(env.DB, {
+        store: new Store(platform.db, {
           writeBudget: settings.writeBudget,
           ip: { key: callerIpKey, budget: settings.writeBudgetPerIp },
           now: time,
@@ -112,10 +122,14 @@ export function createApp(options: AppOptions = {}) {
       return withHeaders(response, cors)
     },
 
-    async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-      const settings = readSettings(env)
+    /**
+     * The daily purge (src/core/purge.ts). The platform calls it once a day, soon after 00:00 UTC, on its
+     * own schedule; calling it twice, or after a missed day, is safe.
+     */
+    async runDailyPurge(platform: Platform): Promise<{ rowsWritten: number }> {
+      const settings = parseSettings(platform.config)
       const time = now()
-      await purge(new Store(env.DB, { writeBudget: settings.writeBudget, now: time }), time, settings.sandboxTtlMs)
+      return purge(new Store(platform.db, { writeBudget: settings.writeBudget, now: time }), time, settings.sandboxTtlMs)
     },
   }
 }

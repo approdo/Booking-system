@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { createApp } from '../src/app'
-import type { Env } from '../src/settings'
+import { createApp } from '../src/platform/cloudflare/app'
+import type { Env } from '../src/platform/cloudflare/env'
 import { SATURDAY_9AM } from './helpers'
 
 /**

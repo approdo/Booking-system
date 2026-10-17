@@ -8,7 +8,7 @@
 # the end is what the deploy job uses (`--env production`). They differ only in ALLOWED_ORIGINS (D-011).
 
 name = "booking-system-api"
-main = "src/index.ts"
+main = "src/platform/cloudflare/index.ts"
 compatibility_date = "2026-10-01"
 workers_dev = true
 # No usage data from wrangler, for anyone who runs it from this repository.
@@ -23,10 +23,10 @@ migrations_dir = "migrations"
 
 [triggers]
 # Every day at 00:10 UTC = 07:10 Thai time, just after the free plan's daily quotas reset at 00:00 UTC:
-# deletes every sandbox older than SANDBOX_TTL_HOURS (src/purge.ts).
+# deletes every sandbox older than SANDBOX_TTL_HOURS (src/core/purge.ts, called by src/platform/cloudflare/app.ts).
 crons = ["10 0 * * *"]
 
-# Settings that are not secret (D-004, D-008). Every value is a string; src/settings.ts reads them.
+# Settings that are not secret (D-004, D-008). Every value is a string; src/core/settings.ts reads them.
 [vars]
 # Rows the API may write to D1 per UTC day: 60% of the free plan's 100,000. Above it, writes answer
 # 503 demo_full and reads keep working until 00:00 UTC.

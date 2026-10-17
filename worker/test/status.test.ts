@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { BOOKING_STATUSES, STATUS_TRANSITIONS } from '../../app/utils/bookingRules'
-import { sha256 } from '../src/ids'
+import { sha256 } from '../src/core/ids'
 import { testApi } from './helpers'
 
 // The starting data has one booking in each status (spec section 10).

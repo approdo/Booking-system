@@ -1,11 +1,14 @@
-import { weekdayOf } from '../../app/utils/bookingRules'
-import type { BookingStatus } from '../../app/utils/bookingRules'
+import { weekdayOf } from '../../../app/utils/bookingRules'
+import type { BookingStatus } from '../../../app/utils/bookingRules'
+import type { Statement } from './ports'
+import { sql } from './sql'
 import type { Store } from './store'
 
 /**
- * The free-therapist rule of src/availability.ts, in SQL, for the statement that takes the time.
- * D1 runs one statement at a time per database, so when two people book the last free place at the same
- * moment, the second INSERT already sees the first booking and inserts nothing (BK-005 scope 4).
+ * The free-therapist rule of src/core/availability.ts, in SQL, for the statement that takes the time.
+ * The database runs write transactions one at a time (Db.transaction in src/core/ports.ts; D1 does so for
+ * every write), so when two people book the last free place at the same moment, the second INSERT
+ * already sees the first booking and inserts nothing (BK-005 scope 4).
  *
  * Parameters: ?1 sandbox, ?2 date, ?3 start and ?4 end (minutes), ?5 weekday, ?6 therapist (NULL = no
  * preference).
@@ -40,7 +43,8 @@ export interface BookingLimits {
 
 /**
  * The limits in SQL, for the INSERT itself: a check made before writing lets requests sent at the same
- * moment all pass it, while D1 runs this statement after the previous one has written.
+ * moment all pass it, while the database runs this statement after the previous one has written
+ * (Db.transaction).
  * Parameters: ?1 sandbox, ?15 window start, ?16 per window, ?17 per sandbox.
  */
 const WITHIN_LIMITS = `
@@ -49,10 +53,12 @@ const WITHIN_LIMITS = `
 
 /** Whether the sandbox has used up one of its limits on new bookings. */
 export async function bookingLimitReached(store: Store, sandboxId: string, limits: BookingLimits): Promise<boolean> {
-  const row = await store.first<{ total: number, recent: number }>(store.prepare(
+  const row = await store.first<{ total: number, recent: number }>(sql(
     `SELECT COUNT(*) AS total, COUNT(CASE WHEN created_at > ?2 THEN 1 END) AS recent
      FROM bookings WHERE sandbox_id = ?1 AND is_seed = 0`,
-  ).bind(sandboxId, limits.windowStart))
+    sandboxId,
+    limits.windowStart,
+  ))
   return (row?.recent ?? 0) >= limits.perWindow || (row?.total ?? 0) >= limits.perSandbox
 }
 
@@ -75,12 +81,13 @@ export interface NewBooking {
  * Inserts a 'pending' booking only if the time is still free and the sandbox is within its limits;
  * `changes` is 0 otherwise (bookingLimitReached() tells which).
  */
-export function insertBookingStatement(store: Store, booking: NewBooking, limits: BookingLimits): D1PreparedStatement {
-  return store.prepare(`${FREE_THERAPIST_CTE}
+export function insertBookingStatement(booking: NewBooking, limits: BookingLimits): Statement {
+  return sql(
+    `${FREE_THERAPIST_CTE}
     INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date, start_min, end_min,
       customer_name, phone, status, is_seed, created_at)
     SELECT ?1, ?7, ?8, ?9, ?10, ?11, ?6, ?2, ?3, ?4, ?12, ?13, 'pending', 0, ?14
-    WHERE ${SOMEONE_IS_FREE} AND ${WITHIN_LIMITS}`).bind(
+    WHERE ${SOMEONE_IS_FREE} AND ${WITHIN_LIMITS}`,
     booking.sandboxId,
     booking.date,
     booking.start,
@@ -105,10 +112,11 @@ export function insertBookingStatement(store: Store, booking: NewBooking, limits
  * Moves a cancelled booking back to 'pending' ("คืนคิว") only if its time is still free; `changes` is 0
  * when another booking took the time meanwhile (409 slot_taken).
  */
-export function restoreBookingStatement(store: Store, booking: { sandboxId: string, code: string, date: string, start: number, end: number, therapistId: string | null }): D1PreparedStatement {
-  return store.prepare(`${FREE_THERAPIST_CTE}
+export function restoreBookingStatement(booking: { sandboxId: string, code: string, date: string, start: number, end: number, therapistId: string | null }): Statement {
+  return sql(
+    `${FREE_THERAPIST_CTE}
     UPDATE bookings SET status = 'pending'
-    WHERE sandbox_id = ?1 AND code = ?7 AND status = 'cancelled' AND ${SOMEONE_IS_FREE}`).bind(
+    WHERE sandbox_id = ?1 AND code = ?7 AND status = 'cancelled' AND ${SOMEONE_IS_FREE}`,
     booking.sandboxId,
     booking.date,
     booking.start,
@@ -120,7 +128,6 @@ export function restoreBookingStatement(store: Store, booking: { sandboxId: stri
 }
 
 /** Any other status change, only from the status the back office saw (another tab may have changed it). */
-export function changeStatusStatement(store: Store, change: { sandboxId: string, code: string, from: BookingStatus, to: BookingStatus }): D1PreparedStatement {
-  return store.prepare('UPDATE bookings SET status = ?4 WHERE sandbox_id = ?1 AND code = ?2 AND status = ?3')
-    .bind(change.sandboxId, change.code, change.from, change.to)
+export function changeStatusStatement(change: { sandboxId: string, code: string, from: BookingStatus, to: BookingStatus }): Statement {
+  return sql('UPDATE bookings SET status = ?4 WHERE sandbox_id = ?1 AND code = ?2 AND status = ?3', change.sandboxId, change.code, change.from, change.to)
 }

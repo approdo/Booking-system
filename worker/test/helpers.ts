@@ -1,7 +1,7 @@
 import { createScheduledController, env } from 'cloudflare:test'
-import { createApp } from '../src/app'
-import type { AppOptions } from '../src/app'
-import type { Env } from '../src/settings'
+import { createApp } from '../src/platform/cloudflare/app'
+import type { CoreOptions } from '../src/core/app'
+import type { Env } from '../src/platform/cloudflare/env'
 
 /**
  * A test client for the Worker: calls the app directly with the local D1 of 'cloudflare:test', on a
@@ -32,7 +32,7 @@ export interface RequestOptions {
   origin?: string
 }
 
-export function testApi(options: { start?: number, env?: Partial<Env>, random?: AppOptions['random'] } = {}) {
+export function testApi(options: { start?: number, env?: Partial<Env>, random?: CoreOptions['random'] } = {}) {
   let time = options.start ?? SATURDAY_9AM
   const app = createApp({ now: () => time, random: options.random })
   const testEnv = { ...env, ...options.env } as Env
