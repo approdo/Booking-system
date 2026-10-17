@@ -44,6 +44,12 @@ describe('worker/src: the core and the Cloudflare layer (D-013)', () => {
     expect(matching(sources('platform/cloudflare'), CLOUDFLARE).length).toBeGreaterThan(5)
   })
 
+  it('uses in core/ only SQL that SQLite (D1) and PostgreSQL both run: no JSON or date functions, no batch()', () => {
+    const SQLITE_ONLY = /json_|jsonb_|strftime|julianday|datetime\(|insert or |replace into|\.batch\(/i
+    expect(SQLITE_ONLY.test('SELECT key FROM json_each(?2)')).toBe(true) // the check sees what it looks for
+    expect(matching(sources('core'), SQLITE_ONLY)).toEqual([])
+  })
+
   it('never imports platform/ from core/, while platform/cloudflare/ builds on core/', () => {
     const importsOf = (folder: string) => matching(sources(folder), /from '[^']*\/(core|platform)\//)
     expect(importsOf('core').filter(line => line.includes('/platform/'))).toEqual([])

@@ -67,9 +67,16 @@ export async function newSandbox(options: { ipKey: string, now: number, limit: n
   const ipKeyHash = await ipHash(options.ipKey)
   const exists = 'EXISTS (SELECT 1 FROM sandboxes WHERE id = ?1)'
   const statements = [
-    sql(`INSERT INTO sandboxes (id, ip_key, created_at) SELECT ?1, ?2, ?3
-      WHERE (SELECT COUNT(*) FROM sandboxes WHERE ip_key = ?2 AND created_at > ?4) < ?5`,
-    id, ipKeyHash, options.now, options.now - 10 * MINUTE_MS, options.limit),
+    // created_at is cast: PostgreSQL reads a parameter that is only in the SELECT list as text.
+    sql(
+      `INSERT INTO sandboxes (id, ip_key, created_at) SELECT ?1, ?2, CAST(?3 AS BIGINT)
+       WHERE (SELECT COUNT(*) FROM sandboxes WHERE ip_key = ?2 AND created_at > ?4) < ?5`,
+      id,
+      ipKeyHash,
+      options.now,
+      options.now - 10 * MINUTE_MS,
+      options.limit,
+    ),
     ...Object.entries(COPIED_TABLES).map(([table, columns]) => sql(
       `INSERT INTO ${table} (sandbox_id, ${columns}) SELECT ?1, ${columns} FROM ${table} WHERE sandbox_id = ?2 AND ${exists}`,
       id,

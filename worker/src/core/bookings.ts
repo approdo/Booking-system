@@ -12,6 +12,11 @@ import type { Store } from './store'
  *
  * Parameters: ?1 sandbox, ?2 date, ?3 start and ?4 end (minutes), ?5 weekday, ?6 therapist (NULL = no
  * preference).
+ *
+ * Plain SQL that SQLite (D1) and PostgreSQL both run (D-013). A therapist's leave dates are a JSON list
+ * written only by the API, '["2026-10-20","2026-10-21"]', and ?2 is a checked 'YYYY-MM-DD', so looking for
+ * the quoted date in the text is exact and needs no JSON functions. ?6 is cast because PostgreSQL cannot
+ * tell the type of a parameter that is only compared with NULL.
  */
 const FREE_THERAPIST_CTE = `
   WITH busy AS (
@@ -22,13 +27,13 @@ const FREE_THERAPIST_CTE = `
     SELECT t.id FROM therapists t
     WHERE t.sandbox_id = ?1
       AND (t.work_days >> ?5) & 1 = 1
-      AND NOT EXISTS (SELECT 1 FROM json_each(t.leave_dates) WHERE json_each.value = ?2)
+      AND t.leave_dates NOT LIKE ('%"' || ?2 || '"%')
       AND NOT EXISTS (SELECT 1 FROM busy WHERE busy.therapist_id = t.id)
   )`
 
 const SOMEONE_IS_FREE = `
   (SELECT COUNT(*) FROM free) - (SELECT COUNT(*) FROM busy WHERE therapist_id IS NULL) >= 1
-  AND (?6 IS NULL OR ?6 IN (SELECT id FROM free))`
+  AND (CAST(?6 AS TEXT) IS NULL OR CAST(?6 AS TEXT) IN (SELECT id FROM free))`
 
 /**
  * The limits on new bookings of one sandbox (D-004, D-008): at most `perWindow` made after `windowStart`
@@ -79,14 +84,16 @@ export interface NewBooking {
 
 /**
  * Inserts a 'pending' booking only if the time is still free and the sandbox is within its limits;
- * `changes` is 0 otherwise (bookingLimitReached() tells which).
+ * `changes` is 0 otherwise (bookingLimitReached() tells which). Numbers that appear only in the SELECT list
+ * are cast: PostgreSQL would take them as text and refuse to put text into an integer column.
  */
 export function insertBookingStatement(booking: NewBooking, limits: BookingLimits): Statement {
   return sql(
     `${FREE_THERAPIST_CTE}
     INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date, start_min, end_min,
       customer_name, phone, status, is_seed, created_at)
-    SELECT ?1, ?7, ?8, ?9, ?10, ?11, ?6, ?2, ?3, ?4, ?12, ?13, 'pending', 0, ?14
+    SELECT ?1, ?7, ?8, ?9, CAST(?10 AS INTEGER), CAST(?11 AS INTEGER), CAST(?6 AS TEXT), ?2, ?3, ?4, ?12, ?13,
+      'pending', 0, CAST(?14 AS BIGINT)
     WHERE ${SOMEONE_IS_FREE} AND ${WITHIN_LIMITS}`,
     booking.sandboxId,
     booking.date,

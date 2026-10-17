@@ -80,9 +80,9 @@ describe('the daily D1 write budget (AC4, D-008 ก)', () => {
 
     // Each update of a count really costs BUDGET_UPDATE_ROWS, whether it inserts or updates the day.
     const upserts = [
-      env.DB.prepare('INSERT INTO write_budget (day, rows) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows')
+      env.DB.prepare('INSERT INTO write_budget (day, rows) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET rows = write_budget.rows + excluded.rows')
         .bind('2000-01-01'),
-      env.DB.prepare('INSERT INTO ip_write_budget (day, ip_key, rows) VALUES (?1, ?2, 1) ON CONFLICT (day, ip_key) DO UPDATE SET rows = rows + excluded.rows')
+      env.DB.prepare('INSERT INTO ip_write_budget (day, ip_key, rows) VALUES (?1, ?2, 1) ON CONFLICT (day, ip_key) DO UPDATE SET rows = ip_write_budget.rows + excluded.rows')
         .bind('2000-01-01', 'key'),
     ]
     for (let run = 0; run < 2; run++) {

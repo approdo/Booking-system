@@ -136,7 +136,7 @@ export const login: Handler = async (context) => {
       // counts itself, and write transactions run one at a time (Db.transaction), so wrong passwords sent
       // at the same moment cannot pass the limit together.
       const [remembered] = await write([sql(
-        `INSERT INTO login_failures (ip_key, at) SELECT ?1, ?2
+        `INSERT INTO login_failures (ip_key, at) SELECT ?1, CAST(?2 AS BIGINT)
          WHERE (SELECT COUNT(*) FROM login_failures WHERE ip_key = ?1 AND at > ?3) < ?4`,
         ipKeyHash,
         now,
@@ -183,7 +183,7 @@ export const login: Handler = async (context) => {
             settings.sessionsPerSandbox - 1,
           )]),
       sql(
-        'INSERT INTO sessions (id, sandbox_id, created_at) SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM sandboxes WHERE id = ?2)',
+        'INSERT INTO sessions (id, sandbox_id, created_at) SELECT ?1, ?2, CAST(?3 AS BIGINT) WHERE EXISTS (SELECT 1 FROM sandboxes WHERE id = ?2)',
         await sha256(sessionToken),
         sandboxId,
         now,
@@ -306,11 +306,12 @@ export const createService: Handler = async (context) => {
   await adminChange(context, sandbox, async (write) => {
     // Counted inside the INSERT, so requests sent at the same moment cannot pass the limit together.
     // Services are never deleted (spec section 7): their count is also the next position in the list.
+    // ?7 (enabled, 0 or 1) is cast because PostgreSQL reads a parameter only in the SELECT list as text.
     const [inserted] = await write([sql(
       `INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
-       SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, service_count
-       FROM (SELECT COUNT(*) AS service_count FROM services WHERE sandbox_id = ?1)
-       WHERE service_count < ?8`,
+       SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6, CAST(?7 AS INTEGER), counted.service_count
+       FROM (SELECT COUNT(*) AS service_count FROM services WHERE sandbox_id = ?1) AS counted
+       WHERE counted.service_count < ?8`,
       sandbox.id,
       id,
       input.categoryId,

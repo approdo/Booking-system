@@ -1,6 +1,6 @@
 import { seed } from '../../../app/data/seed'
 import { addDays, minutesFromTime, normalizePhone } from '../../../app/utils/bookingRules'
-import type { Statement } from './ports'
+import type { SqlValue, Statement } from './ports'
 import { maskFromWorkDays, SEED_SANDBOX } from './shop'
 import { sql } from './sql'
 import type { Store } from './store'
@@ -83,6 +83,45 @@ function seedRows(today: string) {
   return { services, therapists, hours, closedDates: [...seed.closedDates], bookings }
 }
 
+/** The condition of every statement of the installation; `parameter` is where the statement binds the version. */
+function notInstalled(parameter: string): string {
+  return `NOT EXISTS (SELECT 1 FROM meta WHERE key = '${SEED_META_KEY}' AND value = ${parameter})`
+}
+
+/** How a column's parameters are cast: numbers must be, or PostgreSQL reads them as text. */
+type ColumnType = 'TEXT' | 'INTEGER' | 'BIGINT'
+
+/**
+ * Statements that insert `rows` into `table` for the 'seed' sandbox, each only while `version` is not
+ * installed. The rows go in as a VALUES list, whose columns SQLite and PostgreSQL both name column1,
+ * column2, ... (plain SQL: no JSON functions), split so that no statement binds more than `maxParams`
+ * parameters. `columns` names the table's columns in the order of each row's values.
+ */
+function insertRows(table: string, columns: Record<string, ColumnType>, rows: SqlValue[][], version: string, maxParams: number): Statement[] {
+  const names = Object.keys(columns)
+  const types = Object.values(columns)
+  // ?1 is the sandbox and ?2 the version; every row adds one parameter per column.
+  const rowsPerStatement = Math.floor((maxParams - 2) / names.length)
+  if (rowsPerStatement < 1) throw new Error(`${table}: one row needs more than ${maxParams} parameters`)
+  const statements: Statement[] = []
+  for (let first = 0; first < rows.length; first += rowsPerStatement) {
+    const params: SqlValue[] = [SEED_SANDBOX, version]
+    const tuples = rows.slice(first, first + rowsPerStatement).map(row => `(${row.map((value, index) => {
+      params.push(value)
+      const type = types[index] ?? 'TEXT'
+      return type === 'TEXT' ? `?${params.length}` : `CAST(?${params.length} AS ${type})`
+    }).join(', ')})`)
+    statements.push(sql(
+      `INSERT INTO ${table} (sandbox_id, ${names.join(', ')})
+       SELECT ?1, ${names.map((_, index) => `v.column${index + 1}`).join(', ')}
+       FROM (VALUES ${tuples.join(', ')}) AS v
+       WHERE ${notInstalled('?2')}`,
+      ...params,
+    ))
+  }
+  return statements
+}
+
 /**
  * Statements that replace the 'seed' sandbox with the starting data dated from `today`, for one transaction.
  *
@@ -90,39 +129,50 @@ function seedRows(today: string) {
  * last one records it. The database runs the transactions of requests sent at the same moment one after
  * another (Db.transaction), so when the first requests of a day all find the data missing, the first
  * transaction writes it and every later one writes nothing (D-011 M2): the API's own writes stay one
- * installation a day.
+ * installation a day. Exported for the tests.
  */
-function installStatements(today: string, now: number): Statement[] {
+export function installStatements(today: string, now: number, maxParams: number): Statement[] {
   const rows = seedRows(today)
   const version = `${SEED_VERSION}:${today}`
-  const field = (name: string) => `json_extract(value, '$.${name}')`
-  /** The condition of every statement; `parameter` is where the statement binds `version`. */
-  const notInstalled = (parameter: string) =>
-    `NOT EXISTS (SELECT 1 FROM meta WHERE key = '${SEED_META_KEY}' AND value = ${parameter})`
   return [
     ...['services', 'therapists', 'shop_settings', 'bookings'].map(table =>
       sql(`DELETE FROM ${table} WHERE sandbox_id = ?1 AND ${notInstalled('?2')}`, SEED_SANDBOX, version)),
-    // One statement per table, the rows passed as one JSON parameter (D1 allows at most 100 per query).
-    sql(`INSERT INTO services (sandbox_id, id, category_id, name, description, includes, options, enabled, position)
-      SELECT ?1, ${field('id')}, ${field('categoryId')}, ${field('name')}, ${field('description')}, ${field('includes')},
-        ${field('options')}, 1, key FROM json_each(?2) WHERE ${notInstalled('?3')}`,
-    SEED_SANDBOX, JSON.stringify(rows.services), version),
-    sql(`INSERT INTO therapists (sandbox_id, id, name, initial, role, years, specialty, work_days, leave_dates, position)
-      SELECT ?1, ${field('id')}, ${field('name')}, ${field('initial')}, ${field('role')}, ${field('years')},
-        ${field('specialty')}, ${field('workDays')}, '[]', key FROM json_each(?2) WHERE ${notInstalled('?3')}`,
-    SEED_SANDBOX, JSON.stringify(rows.therapists), version),
-    sql(`INSERT INTO shop_settings (sandbox_id, hours, closed_dates) SELECT ?1, ?2, ?3 WHERE ${notInstalled('?4')}`,
-      SEED_SANDBOX, JSON.stringify(rows.hours), JSON.stringify(rows.closedDates), version),
-    sql(`INSERT INTO bookings (sandbox_id, code, service_id, service_name, minutes, price, therapist_id, date,
-        start_min, end_min, customer_name, phone, status, is_seed, created_at)
-      SELECT ?1, ${field('code')}, ${field('serviceId')}, ${field('serviceName')}, ${field('minutes')}, ${field('price')},
-        ${field('therapistId')}, ${field('date')}, ${field('start')}, ${field('end')}, ${field('customerName')},
-        ${field('phone')}, ${field('status')}, 1, ?3 FROM json_each(?2) WHERE ${notInstalled('?4')}`,
-    SEED_SANDBOX, JSON.stringify(rows.bookings), now, version),
+    // position: the order of the starting data, from 0.
+    ...insertRows('services', {
+      id: 'TEXT', category_id: 'TEXT', name: 'TEXT', description: 'TEXT', includes: 'TEXT', options: 'TEXT',
+      enabled: 'INTEGER', position: 'INTEGER',
+    }, rows.services.map((service, position) => [
+      service.id, service.categoryId, service.name, service.description, service.includes, service.options, 1, position,
+    ]), version, maxParams),
+    ...insertRows('therapists', {
+      id: 'TEXT', name: 'TEXT', initial: 'TEXT', role: 'TEXT', years: 'INTEGER', specialty: 'TEXT',
+      work_days: 'INTEGER', leave_dates: 'TEXT', position: 'INTEGER',
+    }, rows.therapists.map((therapist, position) => [
+      therapist.id, therapist.name, therapist.initial, therapist.role, therapist.years, therapist.specialty,
+      therapist.workDays, '[]', position,
+    ]), version, maxParams),
+    sql(
+      `INSERT INTO shop_settings (sandbox_id, hours, closed_dates) SELECT ?1, ?2, ?3 WHERE ${notInstalled('?4')}`,
+      SEED_SANDBOX,
+      JSON.stringify(rows.hours),
+      JSON.stringify(rows.closedDates),
+      version,
+    ),
+    ...insertRows('bookings', {
+      code: 'TEXT', service_id: 'TEXT', service_name: 'TEXT', minutes: 'INTEGER', price: 'INTEGER',
+      therapist_id: 'TEXT', date: 'TEXT', start_min: 'INTEGER', end_min: 'INTEGER', customer_name: 'TEXT',
+      phone: 'TEXT', status: 'TEXT', is_seed: 'INTEGER', created_at: 'BIGINT',
+    }, rows.bookings.map(booking => [
+      booking.code, booking.serviceId, booking.serviceName, booking.minutes, booking.price, booking.therapistId,
+      booking.date, booking.start, booking.end, booking.customerName, booking.phone, booking.status, 1, now,
+    ]), version, maxParams),
     // Last: records the version, which turns every statement above into "write nothing".
-    sql(`INSERT INTO meta (key, value) SELECT ?1, ?2 WHERE ${notInstalled('?2')}
-      ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-    SEED_META_KEY, version),
+    sql(
+      `INSERT INTO meta (key, value) SELECT ?1, ?2 WHERE ${notInstalled('?2')}
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      SEED_META_KEY,
+      version,
+    ),
   ]
 }
 
@@ -131,6 +181,6 @@ export async function ensureSeed(store: Store, cache: SeedCache, today: string, 
   const wanted = `${SEED_VERSION}:${today}`
   if (cache.installed === wanted) return
   const row = await store.first<{ value: string }>(sql('SELECT value FROM meta WHERE key = ?1', SEED_META_KEY))
-  if (row?.value !== wanted) await store.unguardedWrite(write => write(installStatements(today, now)))
+  if (row?.value !== wanted) await store.unguardedWrite(write => write(installStatements(today, now, store.maxParams)))
   cache.installed = wanted
 }

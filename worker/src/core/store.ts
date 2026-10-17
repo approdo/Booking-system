@@ -138,18 +138,21 @@ export class Store {
     }
   }
 
-  /** Adds `rows`, and what updating the counts costs, to today's count and to the IP address's count. */
+  /**
+   * Adds `rows`, and what updating the counts costs, to today's count and to the IP address's count. The
+   * old count is named with its table (write_budget.rows): PostgreSQL finds a bare `rows` ambiguous here.
+   */
   private async addToBudgets(rows: number, ipKeyHash: string | null): Promise<void> {
     const total = rows + (ipKeyHash ? 2 : 1) * BUDGET_UPDATE_ROWS
     const statements = [sql(
-      'INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows',
+      'INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = write_budget.rows + excluded.rows',
       this.day,
       total,
     )]
     if (ipKeyHash) {
       statements.push(sql(
         `INSERT INTO ip_write_budget (day, ip_key, rows) VALUES (?1, ?2, ?3)
-         ON CONFLICT (day, ip_key) DO UPDATE SET rows = rows + excluded.rows`,
+         ON CONFLICT (day, ip_key) DO UPDATE SET rows = ip_write_budget.rows + excluded.rows`,
         this.day,
         ipKeyHash,
         total,
