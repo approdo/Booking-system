@@ -4,7 +4,8 @@
 # On `main` of the public repository (or with the repository variable DEPLOY_PAGES = 'true'), it then
 # deploys, in this order (BK-005 scope 10, BK-011):
 #   1. the API: checks the two Cloudflare secrets, creates the D1 database "booking-system" if it does
-#      not exist yet, applies the migrations and deploys the Worker "booking-system-api";
+#      not exist yet, applies the migrations and deploys the Worker "booking-system-api" with the
+#      production settings of worker/wrangler.toml ([env.production]: only the live site may call it);
 #   2. the site: GitHub Pages, only after the API is up.
 #
 # Needs two repository secrets (Settings -> Secrets and variables -> Actions), set by the owner:
@@ -170,10 +171,10 @@ jobs:
           grep -q "^database_id = \"$id\"" wrangler.toml
 
       - name: Apply D1 migrations
-        run: npx wrangler d1 migrations apply DB --remote
+        run: npx wrangler d1 migrations apply DB --remote --env production
 
       - name: Deploy the Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --env production
 
   deploy:
     name: Deploy to GitHub Pages

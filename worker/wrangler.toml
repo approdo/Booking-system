@@ -3,6 +3,9 @@
 # This file has no account id and no token. Locally nothing is needed: `npm run dev` keeps the database
 # under .wrangler/state. CI deploys with the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets of the
 # GitHub repository and writes the real database_id below at deploy time, without committing it (BK-011).
+#
+# Two sets of settings: the top level is for this machine (`wrangler dev`, the tests); [env.production] at
+# the end is what the deploy job uses (`--env production`). They differ only in ALLOWED_ORIGINS (D-011).
 
 name = "booking-system-api"
 main = "src/index.ts"
@@ -47,6 +50,34 @@ ADMIN_CHANGES_PER_MINUTE = "60"
 SESSIONS_PER_SANDBOX = "5"
 LOGIN_FAILURES_PER_10_MINUTES = "10"
 SANDBOXES_PER_10_MINUTES_PER_IP = "5"
-# Origins of the pages allowed to call the API (CORS), separated by commas: the local preview here;
-# the production origin https://<owner>.github.io is added when the repository exists (BK-011).
+# Origins of the pages allowed to call the API (CORS), separated by commas: here only the local preview.
+# Production allows only the live site: see [env.production.vars] below.
 ALLOWED_ORIGINS = "http://localhost:4176"
+
+# Production: what `wrangler deploy --env production` uploads. Wrangler does not copy [vars] or
+# [[d1_databases]] into an environment, so they are repeated here; tests/unit/workerConfig.test.ts checks
+# that every value matches the top level, except ALLOWED_ORIGINS. The cron trigger above applies here too.
+[env.production]
+# The same Worker name, so the API stays at https://booking-system-api.<subdomain>.workers.dev.
+name = "booking-system-api"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "booking-system"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[env.production.vars]
+D1_WRITE_BUDGET = "60000"
+D1_WRITE_BUDGET_PER_IP_PERCENT = "5"
+SANDBOX_TTL_HOURS = "24"
+BOOKINGS_PER_10_MINUTES = "5"
+BOOKINGS_PER_SANDBOX = "30"
+ADMIN_CHANGES_PER_MINUTE = "60"
+SESSIONS_PER_SANDBOX = "5"
+LOGIN_FAILURES_PER_10_MINUTES = "10"
+SANDBOXES_PER_10_MINUTES_PER_IP = "5"
+# Only the origin of the live pages (D-011 L3): the origin of site.url in app/data/site.ts, which the
+# unit test keeps equal. Both are still the template's example address, and the deploy stops while
+# site.url is (npm run check:site-url); BK-011 sets both to https://<owner>.github.io.
+ALLOWED_ORIGINS = "https://demo.example"

@@ -75,8 +75,10 @@ npm run check:worker   # bundles the Worker as a deploy would, without deploying
 
 `curl http://localhost:8787/health` answers `{"ok":true,"last_purge_at":null}`. The site reads the API's
 address from `site.apiUrl` in `app/data/site.ts` (`http://localhost:8787` until the real one is known);
-`NUXT_PUBLIC_API_BASE` overrides it for one `npm run generate`. The API accepts calls from the local preview
-(`http://localhost:4176`) and, once deployed, from the live site (`ALLOWED_ORIGINS` in `worker/wrangler.toml`).
+`NUXT_PUBLIC_API_BASE` overrides it for one `npm run generate`. Run here, the API accepts calls from the local
+preview (`http://localhost:4176`: `ALLOWED_ORIGINS` at the top of `worker/wrangler.toml`). The deployed API
+accepts only the live site: the deploy uses the production settings (`--env production`, the
+`[env.production.vars]` of the same file), whose only origin is the origin of `site.url`.
 To run the daily purge by hand, start the API with `npx wrangler dev --test-scheduled` in `worker/` and open
 `http://localhost:8787/__scheduled?cron=10+0+*+*+*`.
 
