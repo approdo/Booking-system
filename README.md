@@ -90,7 +90,8 @@ How the demo keeps visitors apart and stays inside the free plan:
   (07:10 in Thailand) deletes every older sandbox with all its rows.
 - **Limits in the Worker**: 5 bookings per sandbox per 10 minutes, 60 back office changes per sandbox per
   minute (signing in to an existing sandbox and signing out count as changes), 5 back office sessions per
-  sandbox (signing in once more ends the oldest), 10 wrong passwords per IP address per 10 minutes, 5 new
+  sandbox (signing in once more ends the oldest), 10 wrong passwords per IP address per 10 minutes (the
+  right password always signs in, so other people's typos on a shared address lock no one out), 5 new
   sandboxes per IP address (IPv6: per /64) per 10 minutes. Above a limit: `429 rate_limited`. Each limit is
   counted inside the SQL statement that writes, so requests sent at the same moment cannot pass it together.
 - **Reads stay small.** D1's free plan also caps rows read (5,000,000 a day for everyone), so a sandbox holds

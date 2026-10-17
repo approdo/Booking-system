@@ -88,7 +88,8 @@ async function credentialsMatch(email: string, password: string): Promise<boolea
  * POST /api/admin/login with { email, password }. Signs in to the visitor's sandbox (the token of the
  * booking pages, if any, as `Authorization: Bearer`), or creates one. Answers { session: { token },
  * sandbox: { token (only when new), expiresAt } }. Wrong password: 401 invalid_credentials; after
- * LOGIN_FAILURES_PER_10_MINUTES wrong passwords from one IP address in 10 minutes: 429 for every try.
+ * LOGIN_FAILURES_PER_10_MINUTES wrong passwords from one IP address in 10 minutes: 429 for every further
+ * wrong password, while the right one still signs in (D-011 L2).
  *
  * Signing in to an existing sandbox counts as a back office change (ADMIN_CHANGES_PER_MINUTE), and a
  * sandbox keeps at most SESSIONS_PER_SANDBOX sessions: signing in once more ends the oldest (D-011 M1).
@@ -107,14 +108,12 @@ export const login: Handler = async (context) => {
   const windowStart = now - 10 * MINUTE_MS
   const estimate = ROWS_ESTIMATE.loginFailure + ROWS_ESTIMATE.newSandbox + ROWS_ESTIMATE.session
   return store.guardedWrite(estimate, async (write) => {
-    const failures = await store.first<{ count: number }>(store.prepare(
-      'SELECT COUNT(*) AS count FROM login_failures WHERE ip_key = ?1 AND at > ?2',
-    ).bind(ipKeyHash, windowStart))
-    if ((failures?.count ?? 0) >= settings.loginFailuresPer10Minutes) throw new ApiError('rate_limited')
-
+    // The password first: only wrong passwords are counted and limited. On an address that many people
+    // share (mobile networks), other people's typos must not lock out a visitor with the right password.
     if (!(await credentialsMatch(email, password))) {
-      // The INSERT counts again itself: wrong passwords sent at the same moment all passed the check above,
-      // and D1 runs this statement only after the previous one has written.
+      // Remembered only while this address has fewer than the limit in the last 10 minutes. The INSERT
+      // counts itself, and D1 runs one statement at a time, so wrong passwords sent at the same moment
+      // cannot pass the limit together.
       const [remembered] = await write([store.prepare(
         `INSERT INTO login_failures (ip_key, at) SELECT ?1, ?2
          WHERE (SELECT COUNT(*) FROM login_failures WHERE ip_key = ?1 AND at > ?3) < ?4`,

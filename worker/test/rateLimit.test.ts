@@ -21,18 +21,23 @@ describe('rate limits in the Worker (AC3, D-004)', () => {
     expect((await api.book({ time: '16:00', date: '2026-10-20' }, { token })).status).toBe(201)
   })
 
-  it('refuses the 11th wrong password from one IP address in 10 minutes, even with the right one', async () => {
+  it('refuses the 11th wrong password from one IP address in 10 minutes, but never the right one (D-011 L2)', async () => {
     const api = testApi()
     const wrong = { email: 'demo@nuanplai.example', password: 'not-the-password' }
     for (let attempt = 1; attempt <= 10; attempt++) {
       expect((await api.request('POST', '/api/admin/login', { body: wrong })).body, `attempt ${attempt}`).toEqual({ error: 'invalid_credentials' })
     }
+    // The demo account's right password still signs in: on an address that many people share (mobile
+    // networks), other people's typos must not lock a visitor out. It is not counted as a failure either.
+    const before = await env.DB.prepare('SELECT COUNT(*) AS count FROM login_failures').first<{ count: number }>()
+    expect((await api.request('POST', '/api/admin/login', { body: { ...wrong, password: 'nuanplai-demo' } })).status).toBe(200)
+    expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM login_failures').first<{ count: number }>()).toEqual(before)
+    // Only wrong passwords are limited: the 11th is refused.
     expect(await api.request('POST', '/api/admin/login', { body: wrong })).toMatchObject({ status: 429, body: { error: 'rate_limited' } })
-    expect((await api.request('POST', '/api/admin/login', { body: { ...wrong, password: 'nuanplai-demo' } })).status).toBe(429)
     // Another IP address is not affected; ten minutes later this one is not either.
     expect((await api.request('POST', '/api/admin/login', { ip: '203.0.113.50', body: wrong })).status).toBe(401)
     api.advance(10 * MINUTE)
-    expect((await api.request('POST', '/api/admin/login', { body: { ...wrong, password: 'nuanplai-demo' } })).status).toBe(200)
+    expect((await api.request('POST', '/api/admin/login', { body: wrong })).status).toBe(401)
   })
 
   // Parallel requests (security review): the limit is checked inside the statement that writes, so a
