@@ -14,7 +14,8 @@ the booking API (Cloudflare Workers + D1, tested locally) are in place; the back
   `@nuxt/fonts` (Noto Sans Thai and Noto Serif Thai, served by the site itself) and `@nuxtjs/i18n` (Thai only)
 - Published as static files on GitHub Pages under `/Booking-system/`
 - The booking API in [`worker/`](worker/): a [Cloudflare Worker](https://developers.cloudflare.com/workers/)
-  with a [D1](https://developers.cloudflare.com/d1/) (SQLite) database, on the free plan
+  with a [D1](https://developers.cloudflare.com/d1/) (SQLite) database, on the free plan. Its core has no
+  Cloudflare code, so it can move to a client's own server (see "Moving the back end to your own server")
 - Started from the author's Site-starter template; the look is design A of Business-site
 
 ## Run it
@@ -50,7 +51,7 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `app/utils/bookingRules.ts` | Rules both sides check: name and phone, booking numbers, status changes, back office forms |
 | `app/utils/bookingRepository.ts` | The pages' only way to the API; turns answers into the states of the design spec |
 | `app/types/api.ts` | The shapes of the API's answers, shared by the pages and the Worker |
-| `worker/` | The booking API: `src/` code, `migrations/` D1 schema, `test/` tests, `wrangler.toml` settings |
+| `worker/` | The booking API: `src/core/` the API itself (routes, rules, limits, SQL; no Cloudflare code), `src/platform/cloudflare/` the Worker around it (entry, D1, caller's IP), `migrations/` D1 schema, `test/` tests, `wrangler.toml` settings |
 | `app/assets/css/tokens.css` | Colours, fonts, radii, shadows (design A); the Site-starter names stay as aliases |
 | `app/pages/` | The booking in five screens (`/`, `/therapist/`, `/time/`, `/details/`, `/done/`); the back office under `/admin/`: `login/`, `today/` (the first page after signing in), `bookings/`, `calendar/` (one day by therapist and time), `services/`, and the two pages of "ตั้งค่าร้าน": `hours/` (opening hours) and `therapists/` (each therapist's working days and leave dates). None of them is indexed by search engines; without a session every page leads to `login/` |
 | `app/components/ui/`, `app/components/booking/`, `app/components/admin/` | The design's building blocks (buttons, fields, banners, tiles, switch, dialog), the booking's own parts and the back office's (tabs, cards, the service form) |
@@ -141,6 +142,123 @@ baht to the dollar; VAT and card fees not included):
   real shop's pages go to Cloudflare (static assets, free) next to the API, ideally on the shop's own
   domain (recommended for production; the domain's yearly fee is extra).
 - Not included in the demo: SMS, LINE or e-mail notifications, payments, more than one branch.
+
+## Moving the back end to your own server (ย้ายหลังบ้านไป server ของลูกค้า)
+
+The API can leave Cloudflare for a server the client runs (Node.js on a VPS or in a container) without
+rewriting its rules. **This repository does not include a Node server yet**: this section is the list of
+what to write, what to change and what stays.
+
+### How the code is split
+
+- `worker/src/core/` is the API itself: the routes and their answers, the availability rules, sandboxes,
+  every limit, the write budgets and all the SQL. It uses only standard Web APIs (`Request`, `Response`,
+  `crypto.subtle`, all global in Node 19 and later) and reaches the outside only through
+  `worker/src/core/ports.ts`: a database (`Db`), the caller's IP address as a string, the settings by name,
+  and `runDailyPurge()` for a scheduler. `npm run typecheck` compiles it with no Cloudflare types
+  (`worker/tsconfig.core.json`), and `tests/unit/workerLayers.test.ts` keeps Cloudflare names out of it.
+- `worker/src/platform/cloudflare/` is the only Cloudflare code, with `worker/wrangler.toml` and the D1
+  migrations in `worker/migrations/`.
+
+### What to replace
+
+| On Cloudflare | What it does | On a Node server |
+|---|---|---|
+| `platform/cloudflare/index.ts` | The Worker's entry: exports `fetch` and `scheduled` | `server.ts`: an HTTP server (`node:http`, or a framework such as Hono or Fastify) that turns each request into a `Request`, calls `core.handle(request, clientIp, platform)` and sends the `Response` back |
+| `platform/cloudflare/app.ts` | Creates the core once (`createCore()`) and hands it D1 and the settings on every call; `scheduled` calls `runDailyPurge()` | The same at start-up: `const core = createCore()` and `const platform = { db, config: process.env }` |
+| `platform/cloudflare/env.ts` | Types of the D1 binding and the `[vars]` | Not needed: the settings are environment variables with the same names (`D1_WRITE_BUDGET`, `ALLOWED_ORIGINS` …), e.g. from a `.env` file that is never committed |
+| `platform/cloudflare/d1.ts` | `D1Db`: the `Db` port on D1 | A `Db` for the database you choose: SQLite or PostgreSQL, below |
+| `platform/cloudflare/clientIp.ts` | The caller's IP address from `CF-Connecting-IP`, which Cloudflare sets itself | The socket's address (`request.socket.remoteAddress`). Behind nginx or a load balancer: the address your own proxy adds to `X-Forwarded-For` (the last entry), and only if the server cannot be reached except through that proxy. Never read the header otherwise: anyone can write any address in it and so dodge every per-IP limit |
+| Cron Trigger `10 0 * * *` in `wrangler.toml` | Runs the daily purge at 00:10 UTC (07:10 in Thailand) | A systemd timer, a crontab line or `node-cron` that calls `core.runDailyPurge(platform)` once a day after 00:00 UTC. Running it twice, or late, is safe |
+| `[vars]` and `[env.production.vars]` in `wrangler.toml` | Settings | Environment variables with the same names; `ALLOWED_ORIGINS` = the origin of the pages |
+| `migrations/` + `wrangler d1 migrations apply` | Creates and updates the schema | A small runner that applies each `NNNN_name.sql` once, in order, and records it in a `schema_migrations` table |
+| Job `deploy-api` in `.github/workflows/deploy.yml` | Creates D1, applies the migrations, deploys the Worker | Your own deploy (a container image, or copy and restart over SSH), with HTTPS in front (a reverse proxy with a certificate) |
+
+What stays as it is: everything in `worker/src/core/` (routes, answers and messages of `design/spec.md`,
+rules, sandboxes, limits); the pages, except `site.apiUrl` in `app/data/site.ts`, which points at the new
+address; the Bearer tokens and CORS, as long as the pages and the API stay on different sites.
+
+### What a database adapter must promise
+
+The `Db` interface in `worker/src/core/ports.ts`, and `worker/test/d1Db.test.ts` for how D1 is checked:
+
+- `first` and `all` return plain rows; numbers as JavaScript numbers (BIGINT and `COUNT(*)` included), NULL
+  as `null`.
+- `transaction(statements)` is all or nothing, runs the statements in order, and runs **one at a time**:
+  no other write may come between them (serializable). The API's guards depend on it: a booking checks
+  that its time is free, and the caps (bookings per sandbox, 30 services, 5 sessions, new sandboxes and
+  wrong passwords per IP address) count inside the very statement that writes, and the day's starting data
+  is written once even when the first requests arrive together. D1 gives this for free, because each
+  database has a single writer. A database that runs transactions side by side at a weaker isolation level
+  would let two requests sent at the same moment both pass a check, for example book the same last free
+  time twice.
+- Each statement reports `changes` (rows inserted, updated or deleted). `rowsWritten` is D1's billing count;
+  other databases return `null`, and the write budgets then count `changes`.
+- `isConstraintError`, `isRetryable` (the core tries a failed call once more), `maxParams` (the starting
+  data is split into statements that bind at most this many parameters).
+
+### Way 1: Node + SQLite (the smallest move)
+
+- The SQL and the migrations stay exactly as they are: D1 is SQLite (`WITHOUT ROWID` included).
+- Driver: `node:sqlite` (built into Node 22, still marked experimental) or `better-sqlite3`. `node:sqlite`
+  takes `?2` as a name rather than the second value, so the adapter rewrites `?N` to `:pN` and binds by name.
+- `transaction`: `BEGIN IMMEDIATE`, the statements, then `COMMIT`, or `ROLLBACK` on any error, on one
+  connection in one process: SQLite then runs every write one after another, like D1. `SQLITE_BUSY` is
+  retryable; "constraint failed" in the message is a constraint error; `changes` comes from each run.
+- One server process only (the database is a file on its disk), with backups of that file.
+
+### Way 2: Node + PostgreSQL
+
+- Driver `pg`. The adapter rewrites `?N` to `$N` (no SQL text in the core contains a literal `?`).
+- Schema: a copy of the migrations for PostgreSQL (e.g. `migrations-postgres/`): remove `WITHOUT ROWID`;
+  declare the millisecond timestamps `BIGINT` (`sandboxes.created_at`, `sandboxes.change_window_start`,
+  `sessions.created_at`, `bookings.created_at`, `login_failures.at`), because PostgreSQL's `INTEGER` is 32
+  bits; keep `enabled` and `is_seed` as `SMALLINT` or `INTEGER` 0 / 1, not `BOOLEAN` (the code compares them
+  with 1 and 0).
+- Numbers: `pg` returns BIGINT and `COUNT(*)` as strings; parse them with `types.setTypeParser(20, Number)`.
+- `transaction`: `BEGIN ISOLATION LEVEL SERIALIZABLE`, the statements, `COMMIT`, and run the whole
+  transaction again when PostgreSQL answers SQLSTATE `40001` (a few times: the core itself retries only
+  once). Simpler for one shop: start every transaction with `SELECT pg_advisory_xact_lock(1)`, which makes
+  writes take turns exactly like D1's single writer.
+- SQLSTATE class `23` (e.g. `23505`, a duplicate key) is a constraint error; `changes` is `rowCount`.
+- Checked once by hand on 2026-10-17: the core, unchanged, ran on PostgreSQL 18.6 (PGlite) and on SQLite
+  3.50 (`node:sqlite`) through throwaway adapters written as above, through every route that writes, the
+  purge and the guards inside the booking INSERT. That check is not part of this repository and used one
+  connection, so it shows that the SQL runs, not how the database behaves under load.
+
+### The write budgets on your own server
+
+`D1_WRITE_BUDGET` and `D1_WRITE_BUDGET_PER_IP_PERCENT` keep D1's free plan (100,000 rows written a day)
+from running out (D-008). Off Cloudflare they count rows changed instead of D1's rows plus index entries.
+Keep them as a brake on abuse (the share per IP address especially), raise them, or set them very high;
+their names stay the same.
+
+### SQL that is not the same everywhere
+
+The core's SQL runs as it is on SQLite (D1) and PostgreSQL. MySQL is not supported; this is what it would
+need.
+
+| In this code | SQLite / D1 | PostgreSQL | MySQL |
+|---|---|---|---|
+| Placeholders `?1` … `?N`, a number used more than once | As they are | `$N` (adapter) | Anonymous `?` with the values repeated in order |
+| `WITHOUT ROWID` on 9 tables (migrations) | Kept: D1's `rows_written`, and the budget figures above, depend on it | Remove | Remove |
+| Millisecond timestamps in `INTEGER` columns | 64-bit already | `BIGINT` | `BIGINT` |
+| `CAST(?N AS BIGINT)`, `AS INTEGER`, `AS TEXT` | No effect | Needed: a parameter that appears only in a SELECT list is read as text | `CAST(? AS SIGNED)` / `AS CHAR` |
+| `INSERT … ON CONFLICT … DO UPDATE` (purge, starting data, budgets) | Yes | Yes | `ON DUPLICATE KEY UPDATE` |
+| `LIMIT` inside `IN (…)` (the oldest sessions) | Yes | Yes | Not allowed: wrap it in a derived table |
+| `SELECT … WHERE …` without `FROM` (inserts that check a limit) | Yes | Yes | Add `FROM DUAL` |
+| `'%"' \|\| ?2 \|\| '"%'` (leave dates) | Yes | Yes | `CONCAT()` |
+| `>>` and `&` on `work_days` | Yes | Yes | Yes |
+| Booleans as 0 / 1 | `INTEGER` | `SMALLINT` or `INTEGER` | `TINYINT` |
+| `login_failures` has no primary key | Hidden rowid | Fine | Fine |
+| Columns named `rows`, `key`, `value`, `day`, `date`, `at`, `position` | Fine | Fine | `rows` and `key` are reserved: quote them with backticks or rename them |
+
+### Tests
+
+The API's tests (`npm run test:worker`) run only inside the Workers runtime with a local D1. A Node server
+needs its own run of the same tests against its own `Db`, at least the ones that send requests at the same
+moment (`rateLimit`, `sessions`, `seedInstall`, `bookings`), since they are what proves the
+one-at-a-time promise above.
 
 ## Photos and credits
 
