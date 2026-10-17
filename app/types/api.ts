@@ -139,7 +139,7 @@ export interface LoginResponse {
   sandbox: NewSandboxDetails
 }
 
-/** Error codes of the API (worker/src/errors.ts). */
+/** Error codes of the API (worker/src/core/errors.ts). */
 export type ApiErrorCode
   = | 'invalid_input' | 'unauthorized' | 'invalid_credentials' | 'not_found' | 'method_not_allowed'
     | 'slot_taken' | 'invalid_transition' | 'sandbox_expired' | 'rate_limited' | 'demo_full'

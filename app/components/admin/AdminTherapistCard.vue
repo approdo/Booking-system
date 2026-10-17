@@ -12,7 +12,7 @@ import { toggleWorkDay, workSummary } from '~/utils/therapistSchedule'
  * One therapist in "ตารางงานหมอนวด" (spec section 7, BK-010): the letter avatar, the name and the regular week
  * in words, seven day buttons Monday to Sunday (DayToggle: dark = works, white = day off), and the leave dates.
  * Every control saves at once (spec section 7, "กติกาบันทึก"); the customer's days and times follow in the
- * same browser, because the Worker only offers a therapist on the days they work (worker/src/availability.ts).
+ * same browser, because the Worker only offers a therapist on the days they work (worker/src/core/availability.ts).
  */
 const props = defineProps<{ therapist: Therapist, today: string }>()
 const emit = defineEmits<{ updated: [therapist: Therapist] }>()

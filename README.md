@@ -5,8 +5,9 @@ as [Business-site](https://approdo.github.io/Business-site/). Customers book a s
 and a time in five steps on their phone; the shop manages bookings, services and opening hours in a back
 office. Thai only. This is a portfolio demo: the brand, the shop and every detail are made up.
 
-Status: **customer booking ready, back office next**. The five booking screens, the shop's starting data and
-the booking API (Cloudflare Workers + D1, tested locally) are in place; the back office comes next.
+Status: **customer booking and back office complete**. The five booking screens, the back office (today's
+summary, bookings, calendar, services, opening hours and the therapists' working days) and the booking API
+(Cloudflare Workers + D1) are all in place and tested.
 
 ## Stack
 
@@ -174,9 +175,20 @@ what to write, what to change and what stays.
 | `migrations/` + `wrangler d1 migrations apply` | Creates and updates the schema | A small runner that applies each `NNNN_name.sql` once, in order, and records it in a `schema_migrations` table |
 | Job `deploy-api` in `.github/workflows/deploy.yml` | Creates D1, applies the migrations, deploys the Worker | Your own deploy (a container image, or copy and restart over SSH), with HTTPS in front (a reverse proxy with a certificate) |
 
-What stays as it is: everything in `worker/src/core/` (routes, answers and messages of `design/spec.md`,
-rules, sandboxes, limits); the pages, except `site.apiUrl` in `app/data/site.ts`, which points at the new
-address; the Bearer tokens and CORS, as long as the pages and the API stay on different sites.
+The tools that start or check the API on this machine go through wrangler too, so they change with it:
+
+| Tool | What it does now | With a Node server |
+|---|---|---|
+| `npm run dev:api` (root `package.json` → `migrate:local` and `dev` in `worker/package.json`) | Applies the migrations to a local D1, then serves the API with `wrangler dev` on port 8787 | Your migration runner on a local database, then the server itself on port 8787 (e.g. `node --watch server.ts`) |
+| `worker/scripts/e2e-server.mjs` (`npm run e2e:api`), started by the second `webServer` of `playwright.config.ts` | Creates an empty local D1 under `worker/.wrangler/e2e`, then runs `wrangler dev` on port 8787 with the two per-IP limits raised (`--var`), because every end-to-end test books from 127.0.0.1 | The same steps for your server: an empty database, the migrations, then the server with `SANDBOXES_PER_10_MINUTES_PER_IP` and `D1_WRITE_BUDGET_PER_IP_PERCENT` raised as environment variables. The `webServer` entry stays: it only waits for `/health` |
+| `npm run check:worker` (`check:deploy` in `worker/package.json`: `wrangler deploy --env production --dry-run`) | Bundles the Worker with the production settings without deploying it; the deploy workflow runs it too | Your own build check: compile the server, or build its container image |
+| `tests/unit/workerConfig.test.ts` | Reads `worker/wrangler.toml`: no account id or token, the purge at 00:10 UTC, the budgets, and production settings that allow only the pages' origin | The same checks on your server's settings, or remove it together with `wrangler.toml` |
+| `tests/unit/deployWorkflow.test.ts` | Checks that in `.github/workflows/deploy.yml` only the steps that run wrangler, and the step that checks the secrets are set, get the Cloudflare secrets | The same rule for your own deploy (only the step that deploys reads its secrets), or remove it together with the `deploy-api` job |
+| `npm run test:worker` (`worker/vitest.config.ts`) | Runs the API's tests inside workerd with a local D1 | See "Tests" below |
+
+What stays as it is: everything in `worker/src/core/` (the routes, their answers and messages, the rules,
+sandboxes, limits); the pages, except `site.apiUrl` in `app/data/site.ts`, which points at the new address;
+the Bearer tokens and CORS, as long as the pages and the API stay on different sites.
 
 ### What a database adapter must promise
 
@@ -203,8 +215,13 @@ The `Db` interface in `worker/src/core/ports.ts`, and `worker/test/d1Db.test.ts`
 - Driver: `node:sqlite` (built into Node 22, still marked experimental) or `better-sqlite3`. `node:sqlite`
   takes `?2` as a name rather than the second value, so the adapter rewrites `?N` to `:pN` and binds by name.
 - `transaction`: `BEGIN IMMEDIATE`, the statements, then `COMMIT`, or `ROLLBACK` on any error, on one
-  connection in one process: SQLite then runs every write one after another, like D1. `SQLITE_BUSY` is
-  retryable; "constraint failed" in the message is a constraint error; `changes` comes from each run.
+  connection in one process: SQLite then runs every write one after another, like D1. There must be **no
+  `await` between `BEGIN IMMEDIATE` and `COMMIT`**. A synchronous driver (`node:sqlite`, `better-sqlite3`)
+  gives this by itself. With an asynchronous driver, put the whole transaction behind a mutex, so that only
+  one runs at a time; otherwise a request that arrives in the meantime runs its statements on the same
+  connection, inside the open transaction, and two requests sent at the same moment can both pass a guard.
+- `SQLITE_BUSY` is retryable; "constraint failed" in the message is a constraint error; `changes` comes from
+  each run.
 - One server process only (the database is a file on its disk), with backups of that file.
 
 ### Way 2: Node + PostgreSQL

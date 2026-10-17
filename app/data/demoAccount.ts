@@ -3,7 +3,7 @@
  * sign in to try the back office. What they change stays in their own browser's sandbox and is deleted
  * within 24 hours, so the account protects nothing. A real shop gets real staff accounts instead (README).
  *
- * The login page (BK-007) shows these values and the back end (worker/src/routes/admin.ts) checks them.
+ * The login page (BK-007) shows these values and the back end (worker/src/core/routes/admin.ts) checks them.
  * Like site.ts, this file is also read outside Nuxt, so it imports nothing.
  */
 export const demoAccount = {

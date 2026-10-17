@@ -6,7 +6,7 @@ import { WEEK_ORDER } from './openingHours'
  * The therapists' working days in the back office (spec section 7, "ตารางงานหมอนวด" — BK-010), as plain
  * functions so the unit tests can check them. The API keeps the days of the week a therapist works (0 =
  * Sunday) and their leave dates; whether a customer can book them on a day is decided by the Worker
- * (worker/src/availability.ts, `worksOn`).
+ * (worker/src/core/availability.ts, `worksOn`).
  */
 
 /**

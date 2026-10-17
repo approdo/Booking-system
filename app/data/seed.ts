@@ -8,7 +8,7 @@ import { therapists } from './team'
  * special closed days and the example bookings. Two readers use this very file (BK-005, spec section 6):
  *
  * - the booking pages, which draw the services into the generated HTML without waiting for the API;
- * - the back end (worker/src/seed.ts), which writes it into D1 as the starting data of every sandbox.
+ * - the back end (worker/src/core/seed.ts), which writes it into D1 as the starting data of every sandbox.
  *
  * Change the shop's data in the files it collects (services.ts, team.ts, hours.ts, sampleBookings.ts).
  */
