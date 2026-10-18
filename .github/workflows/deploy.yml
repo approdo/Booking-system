@@ -77,10 +77,11 @@ jobs:
       - name: Bundle the API (dry run, no account)
         run: npm run check:worker
 
-      # @nuxt/fonts downloads the font while building. If this step fails with ENOTFOUND or
-      # "fetch failed" for a font host, the host was unreachable: re-run the job.
-      - name: Generate the static site
-        run: npm run generate
+      # The build for the tests: its pages call the API on the runner (http://localhost:8787), which
+      # Playwright starts with an empty local D1. @nuxt/fonts downloads the font while building. If this
+      # step fails with ENOTFOUND or "fetch failed" for a font host, the host was unreachable: re-run the job.
+      - name: Generate the static site for the tests
+        run: npm run generate:local
 
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
@@ -97,6 +98,14 @@ jobs:
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
           (github.event.repository.visibility == 'public' || vars.DEPLOY_PAGES == 'true')
         run: npm run check:site-url
+
+      # The build that goes live: the same pages, calling the live API (site.apiUrl) instead of the
+      # runner's. It replaces the test build in .output/public (tests/unit/deployWorkflow.test.ts).
+      - name: Generate the static site for GitHub Pages
+        if: >-
+          github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+          (github.event.repository.visibility == 'public' || vars.DEPLOY_PAGES == 'true')
+        run: npm run generate
 
       - name: Upload the site for GitHub Pages
         if: >-

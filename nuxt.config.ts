@@ -1,5 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
-import { site } from './app/data/site'
+import { localApiUrl, site } from './app/data/site'
 import { ADMIN_PAGE_PATHS } from './app/utils/adminNav'
 import { BOOKING_STEP_PATHS } from './app/utils/bookingSteps'
 import { homePaths, siteLocales } from './app/utils/locales'
@@ -14,9 +14,16 @@ const baseURL = siteUrl.pathname
 // Thai only (N3): site.english is false, so there are no /en/ pages and no English hreflang link.
 const locales = siteLocales(site.english)
 
+// Pages built to run on this machine call the API on this machine, because the live API answers only the
+// live site (CORS). Used by the dev server, and by `npm run generate:local` (--envName local), the build
+// for `npm run preview` and the end-to-end tests. `npm run generate` keeps site.apiUrl, the live API.
+const callTheLocalApi = { runtimeConfig: { public: { apiBase: localApiUrl } } }
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@nuxt/fonts', '@nuxtjs/i18n'],
+  $development: callTheLocalApi,
+  $env: { local: callTheLocalApi },
   devtools: { enabled: true },
   app: {
     baseURL,
@@ -34,7 +41,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       // The booking API's address (app/composables/useBookingRepository.ts). Public on purpose: the
-      // browser calls it. NUXT_PUBLIC_API_BASE overrides it when generating.
+      // browser calls it. The live API here; localApiUrl in the builds above. NUXT_PUBLIC_API_BASE
+      // overrides it when generating.
       apiBase: site.apiUrl,
     },
   },

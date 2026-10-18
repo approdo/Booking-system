@@ -3,11 +3,14 @@ import { site } from '../../app/data/site'
 import { checkSiteUrl } from '../../scripts/lib/siteUrl'
 
 describe('checkSiteUrl (run before every deploy)', () => {
-  it('stops the template\'s example URL, with the Thai hint to fix site.ts', () => {
+  it('stops the template\'s example URL, with the Thai hint to fix site.ts, and lets a real one through', () => {
     const problems = checkSiteUrl(site.url)
-    // The template itself keeps the example URL; a client site replaces it.
+    // The template keeps the example URL; a site that is deployed has its real one.
     if (new URL(site.url).hostname.endsWith('.example')) {
       expect(problems.join('\n')).toContain('แก้ `site.url` ใน `app/data/site.ts` ก่อน deploy')
+    }
+    else {
+      expect(problems).toEqual([])
     }
   })
 

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "generate": "nuxt generate --preset github_pages",
+    "generate:local": "nuxt generate --preset github_pages --envName local",
     "preview": "node scripts/stage-preview.mjs && serve .preview -l 4176",
     "test:unit": "vitest run && npm run test:worker",
     "test:worker": "npm --prefix worker test",

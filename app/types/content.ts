@@ -46,7 +46,7 @@ export interface Site {
    * ('/Booking-system/' here; '/' for a site at the root of its own domain).
    */
   url: string
-  /** Address of the booking API (worker/), without a trailing '/'. Public: the browser calls it. */
+  /** Address of the live booking API (worker/), https, without a trailing '/'. Public: the browser calls it. */
   apiUrl: string
   /** true: Thai pages plus English pages under /en/. false: Thai only (no /en/). */
   english: boolean

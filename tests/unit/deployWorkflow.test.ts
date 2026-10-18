@@ -101,3 +101,32 @@ describe('.github/workflows/deploy.yml: the Cloudflare secrets', () => {
     for (const step of installs) expect(mentionsSecret(step.text), step.name).toBe(false)
   })
 })
+
+// BK-011: the end-to-end tests need pages that call the API on the runner (`npm run generate:local`),
+// while the pages that go live must call the live API (`npm run generate`, site.apiUrl). Both builds write
+// .output/public, so the one that is uploaded must be the live build, made after the tests.
+describe('.github/workflows/deploy.yml: the build that goes live', () => {
+  const build = jobs.find(job => job.id === 'build')!
+  const stepIndex = (pattern: RegExp) => build.steps.findIndex(step => pattern.test(step.text))
+  const condition = (step: Step | undefined) => /\n {8}if: >-\n((?: {10}.*\n)+)/.exec(step?.text ?? '')?.[1]
+
+  const testBuild = stepIndex(/\n {8}run: npm run generate:local\n/)
+  const tests = stepIndex(/\n {8}run: npm run test:e2e\n/)
+  const liveBuild = stepIndex(/\n {8}run: npm run generate\n/)
+  const upload = stepIndex(/\n {8}uses: actions\/upload-pages-artifact@/)
+
+  it('runs the end-to-end tests on the build that calls the local API', () => {
+    expect(testBuild).toBeGreaterThanOrEqual(0)
+    expect(testBuild).toBeLessThan(tests)
+  })
+
+  it('uploads the live build, generated after the tests and under the same condition as the upload', () => {
+    expect(liveBuild).toBeGreaterThan(tests)
+    expect(liveBuild).toBeLessThan(upload)
+    // Nothing between them writes .output/public again.
+    for (const step of build.steps.slice(liveBuild + 1, upload)) expect(step.text, step.name).not.toMatch(/\bnpm run generate\b/)
+    // If the live build were skipped while the upload ran, the test build would go live.
+    expect(condition(build.steps[liveBuild])).toBeDefined()
+    expect(condition(build.steps[liveBuild])).toBe(condition(build.steps[upload]))
+  })
+})

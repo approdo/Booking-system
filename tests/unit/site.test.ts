@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { site } from '../../app/data/site'
+import { localApiUrl, site } from '../../app/data/site'
 import type { Localized } from '../../app/types/content'
 import { joinPhrases } from '../../app/utils/phrases'
 
@@ -33,10 +33,18 @@ describe('site.ts', () => {
     for (const weight of site.fontWeights) expect([100, 200, 300, 400, 500, 600, 700, 800, 900]).toContain(weight)
   })
 
-  it('has the booking API address: http(s), with no path and no trailing slash', () => {
+  it('has the live booking API address: https (the live pages are https), no path, no trailing slash', () => {
     const url = new URL(site.apiUrl)
-    expect(['http:', 'https:']).toContain(url.protocol)
+    // An http API would be blocked as mixed content on the https pages.
+    expect(url.protocol).toBe('https:')
     expect(site.apiUrl).toBe(url.origin)
+  })
+
+  it('has a separate local API address on this machine, for the dev server, the preview and the e2e tests', () => {
+    const url = new URL(localApiUrl)
+    expect(url.hostname).toBe('localhost')
+    expect(localApiUrl).toBe(url.origin)
+    expect(localApiUrl).not.toBe(site.apiUrl)
   })
 
   it('has a phone number of digits and dashes, and an e-mail address', () => {

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { APIRequestContext, BrowserContext, Locator, Page, Route } from '@playwright/test'
 import { demoAccount } from '../../app/data/demoAccount'
 import { sampleBookings } from '../../app/data/sampleBookings'
-import { site } from '../../app/data/site'
+import { localApiUrl, site } from '../../app/data/site'
 import { therapists } from '../../app/data/team'
 import type { AvailabilityResponse, BookingCreatedResponse } from '../../app/types/api'
 import { ADMIN_PAGE_PATHS, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
@@ -160,7 +160,7 @@ test.describe('AC1: signing in and out', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
-    await page.route(`${site.apiUrl}/api/admin/login`, async (route) => {
+    await page.route(`${localApiUrl}/api/admin/login`, async (route) => {
       await held
       await route.continue()
     })
@@ -170,7 +170,7 @@ test.describe('AC1: signing in and out', () => {
     await expect(page.locator('#demo-account button')).toHaveAttribute('aria-disabled', 'true')
     release()
     await expect(page).toHaveURL(urlOf(ADMIN_TABS[0]!.path))
-    await page.unroute(`${site.apiUrl}/api/admin/login`)
+    await page.unroute(`${localApiUrl}/api/admin/login`)
   })
 
   test('`next` leads only to a page of the back office (no open redirect)', async ({ page }) => {
@@ -187,7 +187,7 @@ test.describe('AC1: signing in and out', () => {
     // The first page ("วันนี้") reads /api/admin/shop too: let it finish before that answer is faked.
     await signIn(page)
     await expect(todayCount(page, 'pending')).toBeVisible()
-    await page.route(`${site.apiUrl}/api/admin/shop`, route => fakeAnswer(route, 410, { error: 'sandbox_expired' }))
+    await page.route(`${localApiUrl}/api/admin/shop`, route => fakeAnswer(route, 410, { error: 'sandbox_expired' }))
     await page.getByRole('link', { name: 'บริการ', exact: true }).first().click()
     await expect(page).toHaveURL(urlOf(LOGIN_PATH))
     await expectVisibleText(page, joinPhrases(stateBanners.sandbox_expired.text))
@@ -196,16 +196,16 @@ test.describe('AC1: signing in and out', () => {
     const account = page.locator('#demo-account')
     expect((await banner.boundingBox())!.y).toBeLessThan((await account.boundingBox())!.y)
     expect(await page.evaluate(keys => keys.map(key => localStorage.getItem(key)), [STORAGE_KEYS.sandbox, STORAGE_KEYS.session])).toEqual([null, null])
-    await page.unroute(`${site.apiUrl}/api/admin/shop`)
+    await page.unroute(`${localApiUrl}/api/admin/shop`)
 
     await demoButton(page).click()
     await expect(page).toHaveURL(urlOf(ADMIN_TABS[0]!.path))
     await expect(todayCount(page, 'pending')).toBeVisible()
-    await page.route(`${site.apiUrl}/api/admin/shop`, route => fakeAnswer(route, 401, { error: 'unauthorized' }))
+    await page.route(`${localApiUrl}/api/admin/shop`, route => fakeAnswer(route, 401, { error: 'unauthorized' }))
     await page.getByRole('link', { name: 'ตั้งค่าร้าน', exact: true }).first().click()
     await expect(page).toHaveURL(loginUrl('/admin/hours/'))
     await expectVisibleText(page, 'กรุณาเข้าสู่ระบบอีกครั้ง')
-    await page.unroute(`${site.apiUrl}/api/admin/shop`)
+    await page.unroute(`${localApiUrl}/api/admin/shop`)
   })
 })
 
@@ -213,7 +213,7 @@ test.describe('AC2: the booking list', () => {
   test('search by booking number, name and phone; filter by status and day; the filters stay after a reload', async ({ page, context, request }) => {
     // One booking of this visitor, made through the API, with a phone number of its own (reserved, D-010).
     const tomorrow = addDays(thaiToday(), 1)
-    const response = await request.post(`${site.apiUrl}/api/bookings`, {
+    const response = await request.post(`${localApiUrl}/api/bookings`, {
       data: { serviceId: 'thai-traditional', minutes: 60, therapistId: null, date: tomorrow, time: '14:00', name: 'ทดลอง ค้นหา', phone: '020-000-0000' },
     })
     expect(response.status()).toBe(201)
@@ -304,7 +304,7 @@ test.describe('AC2: the booking list', () => {
   test('a failed change shows the spec\'s message inside the card; "ลองใหม่" sends it again (spec section 5)', async ({ page }) => {
     await signIn(page, '/admin/bookings/')
     const target = card(page, 'NP-2MW8D')
-    const patch = `${site.apiUrl}/api/admin/bookings/NP-2MW8D`
+    const patch = `${localApiUrl}/api/admin/bookings/NP-2MW8D`
 
     await page.route(patch, route => fakeAnswer(route, 429, { error: 'rate_limited' }))
     await target.getByRole('button', { name: 'ยืนยัน', exact: true }).click()
@@ -583,7 +583,7 @@ test.describe('BK-008: today', () => {
 
   test('a new booking for today adds one to its status and is "คิวถัดไป" when it really is next (AC1)', async ({ page, request }) => {
     // The first start time still free today (Thai time) that no booking of the starting data has.
-    const availability = await (await request.get(`${site.apiUrl}/api/availability?minutes=60&therapist=any`)).json() as AvailabilityResponse
+    const availability = await (await request.get(`${localApiUrl}/api/availability?minutes=60&therapist=any`)).json() as AvailabilityResponse
     const today = availability.days[0]!
     const startingTimes = new Set(sampleBookings.filter(item => item.dayOffset === 0).map(item => item.start))
     const slot = today.slots.find(item => item.available && !startingTimes.has(item.time))
@@ -598,7 +598,7 @@ test.describe('BK-008: today', () => {
 
     // Book in the visitor's own sandbox (the token the sign-in left in localStorage); new bookings wait as "รอยืนยัน".
     const token = await page.evaluate(key => localStorage.getItem(key), STORAGE_KEYS.sandbox)
-    const response = await request.post(`${site.apiUrl}/api/bookings`, {
+    const response = await request.post(`${localApiUrl}/api/bookings`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { serviceId: 'thai-traditional', minutes: 60, therapistId: null, date: today.date, time: slot!.time, name: 'ทดลอง วันนี้', phone: '02-000-0000' },
     })
@@ -668,7 +668,7 @@ function workingOn(date: string, except: string) {
  * first page, so signing in shows it. Returns the booking number.
  */
 async function bookInNewSandbox(context: BrowserContext, request: APIRequestContext, date: string, therapistId: string) {
-  const response = await request.post(`${site.apiUrl}/api/bookings`, {
+  const response = await request.post(`${localApiUrl}/api/bookings`, {
     data: { serviceId: 'thai-traditional', minutes: 60, therapistId, date, time: '14:00', name: 'ทดลอง ปฏิทิน', phone: '02-000-0000' },
   })
   expect(response.status()).toBe(201)

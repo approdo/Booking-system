@@ -9,6 +9,10 @@ Status: **customer booking and back office complete**. The five booking screens,
 summary, bookings, calendar, services, opening hours and the therapists' working days) and the booking API
 (Cloudflare Workers + D1) are all in place and tested.
 
+- Live site: <https://approdo.github.io/Booking-system/> (back office: `admin/login/`)
+- Booking API: <https://booking-system-api.approdo.workers.dev/health>
+- Repository: <https://github.com/approdo/Booking-system>
+
 ## Stack
 
 - [Nuxt 4](https://nuxt.com) with static generation, [Tailwind CSS 4](https://tailwindcss.com),
@@ -29,24 +33,25 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `npm ci --prefix worker` | Install the API's dependencies (`worker/package-lock.json`) |
 | `npx playwright install chromium` | Once: the browser for the end-to-end tests and `brand-images` |
 | `npm run dev` | Development server with hot reload |
-| `npm run generate` | Build the static site into `.output/public` (needs internet: it downloads the fonts) |
-| `npm run preview` | Serve that build at http://localhost:4176/Booking-system/ |
+| `npm run generate` | Build the static site for GitHub Pages into `.output/public`; its pages call the live API (`site.apiUrl`). Needs internet: it downloads the fonts |
+| `npm run generate:local` | The same build, but its pages call the API on this machine (http://localhost:8787): the build for `npm run preview` and `npm run test:e2e` |
+| `npm run preview` | Serve the last build at http://localhost:4176/Booking-system/ (the live API refuses pages served from here: preview `generate:local`) |
 | `npm run lint` / `npm run typecheck` | Code style / types (the site and the API) |
 | `npm run test:unit` | Unit tests (Vitest): data rules, token contrast, helpers, then the API's tests (`test:worker`) |
 | `npm run test:worker` | The API's tests only, inside the Workers runtime with a local D1 |
 | `npm run dev:api` | The API at http://localhost:8787 with a local D1 (see below) |
 | `npm run check:worker` | Bundle the API without deploying it (`wrangler deploy --dry-run`, no account) |
-| `npm run test:e2e` | End-to-end tests (Playwright) against the preview on port 4176 and the API on port 8787, which it starts with an empty local D1 (`npm run e2e:api`) — run `npm run generate` first |
+| `npm run test:e2e` | End-to-end tests (Playwright) against the preview on port 4176 and the API on port 8787, which it starts with an empty local D1 (`npm run e2e:api`) — run `npm run generate:local` first |
 | `LIVE_URL=<url> npm run test:live` | The same end-to-end tests against a deployed site |
 | `npm run brand-images` | Make `public/favicon.svg`, `apple-touch-icon.png` and `og-image.png` from `site.ts` and `tokens.css` |
-| `npm run check:site-url` | Check `site.url` before a deploy (still a reserved `.example` address = not ready) |
+| `npm run check:site-url` | Check `site.url` before a deploy (a reserved `.example` address, or not where GitHub Pages serves the repository = not ready) |
 | `npm run psi -- <url>` | Measure a live page with PageSpeed Insights (mobile, 5 runs, median) |
 
 ## Where things are
 
 | Path | What |
 |---|---|
-| `app/data/site.ts` | Shop name, site URL (its path is the base path), contact details, the demo-notice switch |
+| `app/data/site.ts` | Shop name, site URL (its path is the base path), the live and local API addresses, contact details, the demo-notice switch |
 | `app/data/seed.ts` | The shop's starting data in one place (from `services.ts`, `team.ts`, `hours.ts`, `sampleBookings.ts`): the booking pages are generated from it and the API copies it into every sandbox |
 | `app/data/demoAccount.ts` | The back office's demo account, public on purpose |
 | `app/utils/bookingRules.ts` | Rules both sides check: name and phone, booking numbers, status changes, back office forms |
@@ -60,8 +65,9 @@ Needs Node 22.19 or newer (`.nvmrc`).
 | `app/utils/bookingDraft.ts` | What the visitor has chosen so far, kept in `sessionStorage` so a reload or Back keeps it |
 | `i18n/locales/` | Labels of the header, footer and skip link |
 
-Every phone number, e-mail address and URL in the code and the tests is a reserved example value
-(`02-000-0000`, `*.example`), so the demo never points at a real person or shop.
+Every phone number and e-mail address in the code and the tests is a reserved example value
+(`02-000-0000`, `*.example`), so the demo never points at a real person or shop. The only real addresses
+are the demo's own: the site on GitHub Pages and its API.
 
 ## Back end on your machine (หลังบ้านในเครื่อง)
 
@@ -75,12 +81,14 @@ npm run test:worker    # the API's tests (Vitest inside workerd, a fresh local D
 npm run check:worker   # bundles the Worker as a deploy would, without deploying
 ```
 
-`curl http://localhost:8787/health` answers `{"ok":true,"last_purge_at":null}`. The site reads the API's
-address from `site.apiUrl` in `app/data/site.ts` (`http://localhost:8787` until the real one is known);
-`NUXT_PUBLIC_API_BASE` overrides it for one `npm run generate`. Run here, the API accepts calls from the local
-preview (`http://localhost:4176`: `ALLOWED_ORIGINS` at the top of `worker/wrangler.toml`). The deployed API
-accepts only the live site: the deploy uses the production settings (`--env production`, the
-`[env.production.vars]` of the same file), whose only origin is the origin of `site.url`.
+`curl http://localhost:8787/health` answers `{"ok":true,"last_purge_at":null}`. Where the pages send their
+calls depends on the build (`app/data/site.ts`, `nuxt.config.ts`): `npm run generate` uses `site.apiUrl`,
+the live API; `npm run dev` and `npm run generate:local` use `localApiUrl`, this API. `NUXT_PUBLIC_API_BASE`
+overrides both for one build. Run here, the API accepts calls from the local preview
+(`http://localhost:4176`: `ALLOWED_ORIGINS` at the top of `worker/wrangler.toml`). The deployed API accepts
+only the live site: the deploy uses the production settings (`--env production`, the
+`[env.production.vars]` of the same file), whose only origin is the origin of `site.url`. That is why the
+deploy workflow tests a `generate:local` build and then builds again with `npm run generate` for GitHub Pages.
 To run the daily purge by hand, start the API with `npx wrangler dev --test-scheduled` in `worker/` and open
 `http://localhost:8787/__scheduled?cron=10+0+*+*+*`.
 

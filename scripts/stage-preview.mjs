@@ -17,7 +17,7 @@ try {
   await access(join(generatedDir, 'index.html'))
 }
 catch {
-  console.error('No generated site in .output/public. Run `npm run generate` first.')
+  console.error('No generated site in .output/public. Run `npm run generate:local` first.')
   process.exit(1)
 }
 

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Locator, Page, Route } from '@playwright/test'
 import { sampleCustomer } from '../../app/data/sampleCustomer'
-import { site } from '../../app/data/site'
+import { localApiUrl, site } from '../../app/data/site'
 import { stateMessages } from '../../app/utils/bookingRepository'
 import type { BookingDraft } from '../../app/utils/bookingDraft'
 import { DRAFT_STORAGE_KEYS } from '../../app/utils/bookingDraft'
@@ -79,7 +79,7 @@ async function expectStep(page: Page, step: number) {
 function countWrites(page: Page) {
   const writes: string[] = []
   page.on('request', (request) => {
-    if (request.method() === 'POST' && request.url().startsWith(site.apiUrl)) writes.push(request.url())
+    if (request.method() === 'POST' && request.url().startsWith(localApiUrl)) writes.push(request.url())
   })
   return writes
 }
@@ -148,7 +148,7 @@ test.describe('the whole booking against the local API', () => {
     // The first write of this browser creates its sandbox: the button says so while it waits (spec section 5).
     let release!: () => void
     const held = new Promise<void>(resolve => (release = resolve))
-    await page.route(`${site.apiUrl}/api/bookings`, async (route) => {
+    await page.route(`${localApiUrl}/api/bookings`, async (route) => {
       await held
       await route.continue()
     })
@@ -156,7 +156,7 @@ test.describe('the whole booking against the local API', () => {
     await expect(page.locator('.action-bar button')).toHaveText(stateMessages.preparing.text)
     release()
     await expectStep(page, 5)
-    await page.unroute(`${site.apiUrl}/api/bookings`)
+    await page.unroute(`${localApiUrl}/api/bookings`)
     expect(writes).toHaveLength(1)
 
     await expect(page.locator('#booking-code')).toHaveText(BOOKING_CODE_PATTERN)
@@ -307,7 +307,7 @@ test.describe('the form of screen 4', () => {
     await expect(phone).toHaveValue(sampleCustomer.phone)
 
     let sent: Record<string, unknown> | null = null
-    await page.route(`${site.apiUrl}/api/bookings`, async (route) => {
+    await page.route(`${localApiUrl}/api/bookings`, async (route) => {
       if (route.request().method() === 'POST') sent = route.request().postDataJSON()
       await fakeAnswer(route, 201, { booking: lastBooking, sandbox: { token: 'test-token', expiresAt: '2026-10-18T00:00:00.000Z' } })
     })
@@ -349,7 +349,7 @@ test.describe('AC7: answers of the back end become the spec\'s messages (spec se
 
   async function confirmWith(page: Page, answer: (route: Route) => Promise<void>) {
     let attempts = 0
-    await page.route(`${site.apiUrl}/api/bookings`, async (route) => {
+    await page.route(`${localApiUrl}/api/bookings`, async (route) => {
       if (route.request().method() === 'POST') attempts += 1
       await answer(route)
     })
@@ -405,13 +405,13 @@ test.describe('AC7: answers of the back end become the spec\'s messages (spec se
 
   test('the times cannot be read: the error replaces the list, and "ลองใหม่" loads them', async ({ page }) => {
     const writes = countWrites(page)
-    await page.route(`${site.apiUrl}/api/availability**`, route => route.abort('failed'))
+    await page.route(`${localApiUrl}/api/availability**`, route => route.abort('failed'))
     await openPage(page, './time/')
     await expectVisibleText(page, stateMessages.unavailable.title)
     await expect(page.locator('input[name="date"]')).toHaveCount(0)
     await expect(page.locator('h1')).toBeVisible()
 
-    await page.unroute(`${site.apiUrl}/api/availability**`)
+    await page.unroute(`${localApiUrl}/api/availability**`)
     await page.getByRole('button', { name: 'ลองใหม่' }).click()
     await expect(page.locator('input[name="date"]')).toHaveCount(7)
     expect(writes).toEqual([])

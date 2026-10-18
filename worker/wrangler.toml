@@ -58,7 +58,8 @@ ALLOWED_ORIGINS = "http://localhost:4176"
 # [[d1_databases]] into an environment, so they are repeated here; tests/unit/workerConfig.test.ts checks
 # that every value matches the top level, except ALLOWED_ORIGINS. The cron trigger above applies here too.
 [env.production]
-# The same Worker name, so the API stays at https://booking-system-api.<subdomain>.workers.dev.
+# The same Worker name, so the API stays at https://booking-system-api.<subdomain>.workers.dev
+# (site.apiUrl in app/data/site.ts).
 name = "booking-system-api"
 
 [[env.production.d1_databases]]
@@ -77,7 +78,6 @@ ADMIN_CHANGES_PER_MINUTE = "60"
 SESSIONS_PER_SANDBOX = "5"
 LOGIN_FAILURES_PER_10_MINUTES = "10"
 SANDBOXES_PER_10_MINUTES_PER_IP = "5"
-# Only the origin of the live pages (D-011 L3): the origin of site.url in app/data/site.ts, which the
-# unit test keeps equal. Both are still the template's example address, and the deploy stops while
-# site.url is (npm run check:site-url); BK-011 sets both to https://<owner>.github.io.
-ALLOWED_ORIGINS = "https://demo.example"
+# Only the origin of the live pages (D-011 L3): the origin of site.url in app/data/site.ts, which
+# tests/unit/workerConfig.test.ts keeps equal. Change both together.
+ALLOWED_ORIGINS = "https://approdo.github.io"
