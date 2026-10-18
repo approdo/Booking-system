@@ -182,7 +182,7 @@ async function loadShop() {
   loadFailure.value = bannerFor(result.state)
 }
 
-onMounted(loadShop)
+onSignedInMounted(loadShop)
 </script>
 
 <template>

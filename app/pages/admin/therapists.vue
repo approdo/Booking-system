@@ -32,7 +32,7 @@ async function loadTherapists() {
   failure.value = bannerFor(result.state)
 }
 
-onMounted(loadTherapists)
+onSignedInMounted(loadTherapists)
 
 /** A therapist saved by their card, in place of the old one. */
 function keepTherapist(therapist: Therapist) {

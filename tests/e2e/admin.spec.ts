@@ -5,7 +5,7 @@ import { sampleBookings } from '../../app/data/sampleBookings'
 import { localApiUrl, site } from '../../app/data/site'
 import { therapists } from '../../app/data/team'
 import type { AvailabilityResponse, BookingCreatedResponse } from '../../app/types/api'
-import { ADMIN_PAGE_PATHS, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
+import { ADMIN_PAGE_PATHS, ADMIN_ROOT_PATH, ADMIN_TABS, LOGIN_PATH } from '../../app/utils/adminNav'
 import type { BookingDraft } from '../../app/utils/bookingDraft'
 import { DRAFT_STORAGE_KEYS } from '../../app/utils/bookingDraft'
 import { fullDate, shortDateWithYear, spokenDate, thaiToday, weekdayName } from '../../app/utils/bookingFormat'
@@ -48,6 +48,26 @@ async function openPage(page: Page, path: string) {
     const root = document.querySelector('#__nuxt')
     return root !== null && '__vue_app__' in root
   })
+}
+
+/**
+ * What goes wrong while a page loads (lesson G-011): console errors, uncaught page errors and failed responses,
+ * and every request to the booking API.
+ */
+function watchPage(page: Page) {
+  const errors: string[] = []
+  const apiRequests: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+  })
+  page.on('pageerror', error => errors.push(`page error: ${error.message}`))
+  page.on('response', (response) => {
+    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`)
+  })
+  page.on('request', (request) => {
+    if (request.url().startsWith(localApiUrl)) apiRequests.push(`${request.method()} ${new URL(request.url()).pathname}`)
+  })
+  return { errors, apiRequests }
 }
 
 function demoButton(page: Page) {
@@ -181,6 +201,35 @@ test.describe('AC1: signing in and out', () => {
     await openPage(page, `${LOGIN_PATH}?next=${encodeURIComponent('/admin/hours/')}`)
     // Signed in already: the login page sends the visitor straight on.
     await expect(page).toHaveURL(urlOf('/admin/hours/'))
+  })
+
+  // A page opened from its address is drawn from its pre-rendered HTML first. When the visitor belongs elsewhere,
+  // the page must come to life as itself before it moves on, or Vue reports a hydration mismatch (BK-012 AC8).
+  test('without a session, a cold load of any other page leads to the login page with no error, asking the API nothing', async ({ context }) => {
+    for (const path of ADMIN_PAGE_PATHS.filter(path => path !== LOGIN_PATH)) {
+      const page = await context.newPage()
+      const { errors, apiRequests } = watchPage(page)
+      await openPage(page, path)
+      await expect(page, path).toHaveURL(loginUrl(path === ADMIN_ROOT_PATH ? undefined : path))
+      await expect(page.locator('h1'), path).toHaveText('เข้าสู่ระบบ')
+      await page.waitForLoadState('networkidle')
+      expect({ path, errors, apiRequests }).toEqual({ path, errors: [], apiRequests: [] })
+      await page.close()
+    }
+  })
+
+  test('signed in, a cold load of /admin/ or the login page leads to the first tab with no error', async ({ context, page }) => {
+    await signIn(page)
+    for (const path of [ADMIN_ROOT_PATH, LOGIN_PATH]) {
+      const tab = await context.newPage()
+      const { errors } = watchPage(tab)
+      await openPage(tab, path)
+      await expect(tab, path).toHaveURL(urlOf(ADMIN_TABS[0]!.path))
+      await expect(tab.locator('h1'), path).toHaveText(ADMIN_TABS[0]!.label)
+      await tab.waitForLoadState('networkidle')
+      expect({ path, errors }).toEqual({ path, errors: [] })
+      await tab.close()
+    }
   })
 
   test('an expired sandbox and an ended session go back to the login page and say why (spec section 5)', async ({ page }) => {

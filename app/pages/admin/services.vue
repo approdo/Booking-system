@@ -32,7 +32,7 @@ async function loadServices() {
   failure.value = bannerFor(result.state)
 }
 
-onMounted(loadServices)
+onSignedInMounted(loadServices)
 
 const categoryNames = Object.fromEntries(seed.serviceCategories.map(item => [item.id, item.name]))
 const categoryOptions = computed(() => [

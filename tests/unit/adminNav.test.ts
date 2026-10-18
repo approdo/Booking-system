@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accessRedirect,
   ADMIN_HOME_PATH,
   ADMIN_PAGE_PATHS,
+  ADMIN_ROOT_PATH,
   ADMIN_TABS,
   currentTab,
   LOGIN_PATH,
@@ -88,5 +90,32 @@ describe('loginPathFor', () => {
   it('leaves `next` out for /admin/ itself and for anything unsafe', () => {
     expect(loginPathFor('/admin/')).toBe(LOGIN_PATH)
     expect(loginPathFor('https://example.com/')).toBe(LOGIN_PATH)
+  })
+})
+
+describe('accessRedirect', () => {
+  const open = (fullPath: string, next?: string) => ({ path: fullPath.split('?', 1)[0]!, fullPath, next })
+
+  it('without a session, leads every page but the login page to the login page, which comes back afterwards', () => {
+    for (const path of ADMIN_PAGE_PATHS.filter(path => path !== LOGIN_PATH && path !== ADMIN_ROOT_PATH)) {
+      expect(accessRedirect(open(path), false), path).toBe(loginPathFor(path))
+    }
+    expect(accessRedirect(open('/admin/bookings/?day=all'), false)).toBe(loginPathFor('/admin/bookings/?day=all'))
+    expect(accessRedirect(open(ADMIN_ROOT_PATH), false)).toBe(LOGIN_PATH)
+    expect(accessRedirect(open(LOGIN_PATH), false)).toBeNull()
+    expect(accessRedirect(open(`${LOGIN_PATH}?next=/admin/hours/`, '/admin/hours/'), false)).toBeNull()
+  })
+
+  it('with a session, leads /admin/ and the login page on to the first tab or a safe `next`, and keeps every other page', () => {
+    expect(accessRedirect(open(ADMIN_ROOT_PATH), true)).toBe(ADMIN_HOME_PATH)
+    expect(accessRedirect(open(LOGIN_PATH), true)).toBe(ADMIN_HOME_PATH)
+    expect(accessRedirect(open(`${LOGIN_PATH}?next=/admin/hours/`, '/admin/hours/'), true)).toBe('/admin/hours/')
+    expect(accessRedirect(open(`${LOGIN_PATH}?next=https://example.com/`, 'https://example.com/'), true)).toBe(ADMIN_HOME_PATH)
+    for (const path of ADMIN_TABS.flatMap(tab => tab.pages)) expect(accessRedirect(open(path), true), path).toBeNull()
+  })
+
+  it('reads a path without its last "/" like the page it names', () => {
+    expect(accessRedirect(open('/admin/login'), true)).toBe(ADMIN_HOME_PATH)
+    expect(accessRedirect(open('/admin'), true)).toBe(ADMIN_HOME_PATH)
   })
 })

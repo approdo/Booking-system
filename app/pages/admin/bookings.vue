@@ -75,7 +75,7 @@ async function loadList() {
   failure.value = bannerFor(result.state)
 }
 
-onMounted(() => {
+onSignedInMounted(() => {
   const { query } = router.currentRoute.value
   day.value = readDayFilter(query.day)
   status.value = readStatusFilter(query.status)

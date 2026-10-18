@@ -43,6 +43,18 @@ export function useAdminSession() {
   return { repository, notice, leaveIfSignedOut, logout }
 }
 
+/**
+ * onMounted for a page of the back office that loads its data: runs `start` for a signed-in visitor only.
+ * Opened from its address without a session, such a page first comes to life as itself and then goes on to the
+ * login page (app/middleware/admin-access.global.ts); until then it asks the API nothing.
+ */
+export function onSignedInMounted(start: () => void) {
+  const repository = useBookingRepository()
+  onMounted(() => {
+    if (repository.hasSession()) start()
+  })
+}
+
 /** The request for the bookings while it is on its way, so the layout and the page that both ask share it. */
 let loadingBookings: ReturnType<BookingRepository['listBookings']> | null = null
 

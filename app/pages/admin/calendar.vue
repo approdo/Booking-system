@@ -62,7 +62,7 @@ async function loadCalendar() {
   failure.value = bannerFor(failed)
 }
 
-onMounted(() => {
+onSignedInMounted(() => {
   const { date } = router.currentRoute.value.query
   requestedDate.value = typeof date === 'string' && isIsoDate(date) ? date : null
   loadCalendar()

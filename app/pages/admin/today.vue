@@ -46,7 +46,7 @@ async function loadSummary() {
 const nowMs = ref(0)
 let clock: ReturnType<typeof setInterval> | undefined
 
-onMounted(() => {
+onSignedInMounted(() => {
   nowMs.value = Date.now()
   clock = setInterval(() => {
     nowMs.value = Date.now()

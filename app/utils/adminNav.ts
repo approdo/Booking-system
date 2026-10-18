@@ -97,3 +97,26 @@ export function loginPathFor(next: string): string {
   const back = safeNextPath(next)
   return back && back !== ADMIN_ROOT_PATH ? `${LOGIN_PATH}?next=${encodeURIComponent(back)}` : LOGIN_PATH
 }
+
+/** The page of the back office being opened: its path, its path with the query, and the query's `next`. */
+export interface AdminDestination {
+  path: string
+  fullPath: string
+  next?: unknown
+}
+
+/**
+ * Where a visitor who opens a page of the back office is sent instead (spec section 2), or null to stay:
+ *
+ * - without a session, every page but the login page leads to the login page, which comes back afterwards;
+ * - with a session, /admin/ and the login page lead to the first tab, or to the login page's `next`.
+ *
+ *   accessRedirect({ path: '/admin/hours/', fullPath: '/admin/hours/' }, false)  returns '/admin/login/?next=…'
+ *   accessRedirect({ path: '/admin/login/', fullPath: '/admin/login/' }, true)   returns ADMIN_HOME_PATH
+ */
+export function accessRedirect(to: AdminDestination, signedIn: boolean): string | null {
+  const page = withSlash(to.path)
+  if (page === LOGIN_PATH) return signedIn ? safeNextPath(to.next) ?? ADMIN_HOME_PATH : null
+  if (!signedIn) return loginPathFor(to.fullPath)
+  return page === ADMIN_ROOT_PATH ? ADMIN_HOME_PATH : null
+}
